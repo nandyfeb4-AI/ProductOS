@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from pydantic import BaseModel
 
 from app.schemas.common import StoryArtifact
@@ -7,7 +11,7 @@ from app.schemas.prd import PRDDocument
 
 class StoryGenerateRequest(BaseModel):
     feature: Feature
-    prd: PRDDocument | None = None
+    prd: Optional[PRDDocument] = None
 
 
 class StoryGenerateResponse(BaseModel):
@@ -28,4 +32,3 @@ class StorySliceRequest(BaseModel):
 
 class StorySliceResponse(BaseModel):
     stories: list[StoryArtifact]
-

@@ -1,10 +1,81 @@
 # API Contract
 
-Base URL: `http://localhost:8000`
+Base URL: `http://127.0.0.1:8001`
 
-All endpoints return JSON and are synchronous for the MVP.
+Endpoints return JSON unless otherwise noted. The legacy generation endpoints are still synchronous, and the preferred long-running AI flow now also supports async job endpoints with websocket updates.
 
 ## Endpoints
+
+## Projects
+
+Projects are the intended top-level container for discovery and delivery work. Workshops and workflow runs should be created inside a project whenever the UI already has project context.
+
+### `POST /api/projects`
+- Request: `{ "name": "Rider Growth", "slug": "rider-growth", "description": "Growth discovery and delivery", "status": "active" }`
+- Response: `{ "id": "uuid", "name": "Rider Growth", "slug": "rider-growth", "description": "Growth discovery and delivery", "status": "active", "workshop_count": 0, "workflow_count": 0, "active_workflow_count": 0, "feature_count": 0, "initiative_count": 0, "story_count": 0, "created_at": "...", "updated_at": "..." }`
+
+### `GET /api/projects?status=active`
+- Response: `{ "projects": [{ ...ProjectSummary }] }`
+
+### `GET /api/projects/{project_id}`
+- Response: `ProjectResponse`
+
+### `PATCH /api/projects/{project_id}`
+- Request: any subset of `{ "name", "slug", "description", "status" }`
+- Response: updated `ProjectResponse`
+
+## Workshops
+
+Workshops are now a first-class discovery entity that belongs to a project.
+
+### `POST /api/workshops`
+- Request:
+```json
+{
+  "project_id": "uuid",
+  "title": "April Rider Discovery Workshop",
+  "status": "active",
+  "source_provider": "mural",
+  "source_resource_id": "mural_123",
+  "source_resource_name": "Rider discovery board",
+  "source_url": "https://app.mural.co/...",
+  "transcript": "optional raw transcript",
+  "notes": "optional notes",
+  "source_payload": {},
+  "insights_payload": {},
+  "journey_payload": {},
+  "import_meta": {}
+}
+```
+- Response: `WorkshopResponse`
+
+### `GET /api/workshops?project_id=uuid&status=active`
+- Query params:
+  - `project_id` optional
+  - `status` optional
+- Response: `{ "workshops": [ ...WorkshopSummary ] }`
+
+### `GET /api/workshops/{workshop_id}`
+- Response: `WorkshopResponse`
+
+### `PATCH /api/workshops/{workshop_id}`
+- Request: any subset of:
+  - `title`
+  - `status`
+  - `source_provider`
+  - `source_resource_id`
+  - `source_resource_name`
+  - `source_url`
+  - `transcript`
+  - `notes`
+  - `source_payload`
+  - `insights_payload`
+  - `journey_payload`
+  - `import_meta`
+  - `current_workflow_id`
+  - `latest_workflow_step`
+  - `latest_workflow_status`
+- Response: updated `WorkshopResponse`
 
 ### `POST /api/workshop/analyze`
 - Request: `{ "title": "string", "transcript": "string", "notes": "string | null" }`
@@ -13,6 +84,250 @@ All endpoints return JSON and are synchronous for the MVP.
 ### `POST /api/initiative/generate`
 - Request: `{ "workshop_id": "uuid", "insights": { ... } }`
 - Response: `{ "initiatives": [{ "title": "...", "description": "...", "problem_statement": "...", "priority": "high|medium|low" }] }`
+
+### `POST /api/opportunity/synthesize`
+- Request: `{ "title": "string", "insights": { ... } | null, "journey": { "stages": [...] } | null }`
+- Response: `{ "opportunities": [{ "id": "opp_1", "title": "...", "problem_statement": "...", "why_it_matters": "...", "confidence": 87, "impact": "high|medium|low", "evidence": [{ "text": "...", "category": "negative_moments", "stage": "Entice" }] }] }`
+- Behavior: uses the OpenAI Responses API and fails explicitly when AI is unavailable or generation fails
+
+### `POST /api/opportunity/validate`
+- Request: `{ "title": "string | null", "opportunities": [...], "approved_ids": ["opp_1"], "discarded_ids": ["opp_2"] }`
+- Response: `{ "approved": [...], "discarded_ids": ["opp_2"], "total_candidates": 3, "total_approved": 1 }`
+
+### `POST /api/solution-shaping/synthesize`
+- Request: `{ "opportunities": [{ "id": "opp_1", "title": "...", "problem_statement": "...", "why_it_matters": "...", "confidence": 87, "impact": "high", "evidence": [...] }] }`
+- Response: `{ "shaped": [{ "id": "shaped-opp_1", "derived_from_opportunity_id": "opp_1", "recommended_type": "Feature|Initiative|Enhancement|No action", "title": "...", "problem_statement": "...", "rationale": "...", "scope": "Medium - 2-4 sprints" }] }`
+- Behavior: uses the OpenAI Responses API and fails explicitly when AI is unavailable or generation fails
+
+### `POST /api/solution-shaping/confirm`
+- Request: `{ "shaped": [{ "derived_from_opportunity_id": "opp_1", "recommended_type": "Feature", "chosen_type": "Feature", ... }] }`
+- Response: `{ "shaped": [...], "actionable_count": 1, "deferred_count": 0 }`
+
+### `POST /api/artifacts/generate`
+- Request: `{ "shaped": [{ "id": "shaped-1", "derived_from_opportunity_id": "opp_1", "recommended_type": "Feature", "chosen_type": "Feature", "title": "...", "problem_statement": "...", "rationale": "...", "scope": "Small - 1-2 sprints" }] }`
+- Response: `{ "artifacts": [{ "artifact_id": "artifact_1", "artifact_type": "initiative|feature|enhancement", "derived_from_solution_id": "shaped-1", "status": "draft", "title": "...", "summary": "...", "body": { ...type-specific fields... } }] }`
+- Behavior: uses the OpenAI Responses API and fails explicitly when AI is unavailable or generation fails
+
+Feature body shape now includes canonical PM fields:
+- `problem_statement`
+- `user_segment`
+- `proposed_solution`
+- `user_value`
+- `business_value`
+- `functional_requirements`
+- `non_functional_requirements`
+- `dependencies`
+- `success_metrics`
+- `priority`
+
+Compatibility note:
+- feature bodies still also include `user_problem` and `solution_overview` for the current UI, but `problem_statement` and `proposed_solution` are now the preferred fields going forward
+
+### `POST /api/artifacts/approve`
+- Request: `{ "artifacts": [...], "approved_ids": ["artifact_1"], "rejected_ids": ["artifact_2"] }`
+- Response: `{ "artifacts": [...approved artifacts only...], "approved_count": 1, "rejected_count": 1, "total_candidates": 2 }`
+
+### `POST /api/stories/slice`
+- Request: `{ "artifacts": [...approved artifacts...] }`
+- Response: `{ "stories": [{ "story_id": "story_1", "derived_from_artifact_id": "artifact_1", "status": "draft", "title": "...", "user_story": "As a ..., I want ..., so that ...", "as_a": "...", "i_want": "...", "so_that": "...", "description": "...", "acceptance_criteria": [], "edge_cases": [], "dependencies": [], "priority": "high|medium|low" }] }`
+- Behavior: uses the OpenAI Responses API and fails explicitly when AI is unavailable or generation fails
+
+## Async Generation Jobs
+
+These endpoints are the preferred path for long-running AI work so the UI can stay responsive and subscribe to real-time status updates.
+
+### `POST /api/jobs/opportunity-synthesis`
+- Request: same as `POST /api/opportunity/synthesize`
+- Response: `{ "job": { "id": "uuid", "job_type": "opportunity_synthesis", "status": "queued", "progress_stage": "queued", "progress_message": "Queued for AI opportunity synthesis.", "input_payload": { ... }, "result_payload": null, "error_message": null, "created_at": "...", "updated_at": "...", "completed_at": null } }`
+
+### `POST /api/jobs/solution-shaping`
+- Request: same as `POST /api/solution-shaping/synthesize`
+- Response: same job wrapper with `job_type = "solution_shaping"`
+
+### `POST /api/jobs/artifact-generation`
+- Request: same as `POST /api/artifacts/generate`
+- Response: same job wrapper with `job_type = "artifact_generation"`
+
+### `POST /api/jobs/story-slicing`
+- Request: same as `POST /api/stories/slice`
+- Response: same job wrapper with `job_type = "story_slicing"`
+
+### `GET /api/jobs/{job_id}`
+- Response: `{ "id": "uuid", "job_type": "...", "status": "queued|running|completed|failed|cancelled", "progress_stage": "queued|running|completed|failed", "progress_message": "...", "input_payload": { ... }, "result_payload": { ... } | null, "error_message": "..." | null, "created_at": "...", "updated_at": "...", "completed_at": "..." | null }`
+
+### `WS /api/jobs/ws/{job_id}`
+- WebSocket stream for live job updates
+- Event payload:
+```json
+{
+  "event": "job.updated",
+  "job": {
+    "id": "uuid",
+    "job_type": "story_slicing",
+    "status": "running",
+    "progress_stage": "running",
+    "progress_message": "Queued for AI story slicing.",
+    "input_payload": { "...": "..." },
+    "result_payload": null,
+    "error_message": null,
+    "created_at": "2026-04-13T00:00:00Z",
+    "updated_at": "2026-04-13T00:00:01Z",
+    "completed_at": null
+  }
+}
+```
+- Notes:
+  - first message is sent immediately on connect with the current job snapshot
+  - for the first backend pass, progress is honest but coarse: `queued`, `running`, `completed`, `failed`
+  - richer sub-stages can be added later as the long-running services emit them
+
+### `POST /api/stories/approve`
+- Request: `{ "stories": [...], "approved_ids": ["story_1"], "rejected_ids": ["story_2"] }`
+- Response: `{ "stories": [...approved stories only...], "approved_count": 1, "rejected_count": 1, "total_candidates": 2 }`
+
+### `POST /api/connectors/jira/connect`
+- Request: `{ "base_url": "https://your-domain.atlassian.net", "email": "pm@company.com", "api_token": "..." }`
+- Response: `{ "connected": true, "base_url": "...", "email": "...", "display_name": "Jane PM", "account_id": "..." }`
+
+### `GET /api/connectors/jira/connect`
+- Response: `{ "provider": "jira", "authorization_url": "https://auth.atlassian.com/authorize?...","state": "..." }`
+- Behavior: preferred Jira auth flow for MVP now that backend OAuth app credentials are configured
+
+### `GET /api/connectors/jira/callback?code=...&state=...`
+- Behavior: exchanges the Atlassian OAuth code, stores the Jira session, then redirects browser back to the web app callback route
+
+### `GET /api/connectors/jira/status`
+- Response: `{ "connected": false, "base_url": "", "email": "" }` when disconnected, or connected session metadata when authenticated
+
+### `POST /api/connectors/jira/disconnect`
+- Response: `{ "connected": false }`
+
+### `GET /api/connectors/jira/projects`
+- Response: `{ "projects": [{ "id": "10000", "key": "PROD", "name": "ProductOS", "project_type_key": "software" }] }`
+
+### `GET /api/connectors`
+- Response:
+```json
+{
+  "connectors": [
+    {
+      "provider": "mural",
+      "label": "Mural",
+      "category": "discovery",
+      "connected": true,
+      "display_name": "Jane PM",
+      "username": "jane@company.com",
+      "base_url": null,
+      "account_id": null,
+      "state": "oauth_state",
+      "last_connected_at": "2026-04-14T00:00:00Z",
+      "last_synced_at": "2026-04-14T00:10:00Z",
+      "last_synced_resource_name": "User personas",
+      "metadata": {}
+    },
+    {
+      "provider": "jira",
+      "label": "Jira",
+      "category": "delivery",
+      "connected": true,
+      "display_name": "Jane PM",
+      "username": "jane@company.com",
+      "base_url": "https://example.atlassian.net",
+      "account_id": "abc123",
+      "state": "oauth_state",
+      "last_connected_at": "2026-04-14T00:00:00Z",
+      "last_synced_at": null,
+      "last_synced_resource_name": null,
+      "metadata": {
+        "cloud_id": "..."
+      }
+    }
+  ]
+}
+```
+- Purpose: global integration hub for discovery and delivery connectors
+
+### `POST /api/connectors/mural/disconnect`
+- Response: `{ "connected": false }`
+
+## Workflow Runs
+
+These endpoints create a first-class backend source of truth for workshop flows so the UI can restore, list, and resume workflows by `workflow_id` instead of relying on browser-only storage.
+
+### `POST /api/workflows`
+- Request:
+```json
+{
+  "workflow_type": "workshop",
+  "project_id": "uuid | null",
+  "workshop_id": "uuid | null",
+  "title": "Q2 Planning Workshop",
+  "source_provider": "mural",
+  "source_resource_id": "mural_123",
+  "source_resource_name": "User personas",
+  "current_step": "workshop",
+  "status": "active",
+  "state_payload": {
+    "workshop": {},
+    "opportunities": []
+  }
+}
+```
+- Response:
+```json
+{
+  "id": "uuid",
+  "workflow_type": "workshop",
+  "project_id": "uuid | null",
+  "workshop_id": "uuid | null",
+  "title": "Q2 Planning Workshop",
+  "source_provider": "mural",
+  "source_resource_id": "mural_123",
+  "source_resource_name": "User personas",
+  "current_step": "workshop",
+  "status": "active",
+  "state_payload": {},
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+### `GET /api/workflows?workflow_type=workshop&project_id=uuid&workshop_id=uuid`
+- Query params:
+  - `workflow_type` optional
+  - `project_id` optional
+  - `workshop_id` optional
+- Response: `{ "workflows": [ ...WorkflowRunResponse ] }`
+
+### `GET /api/workflows/{workflow_id}`
+- Response: `WorkflowRunResponse`
+
+### `PATCH /api/workflows/{workflow_id}`
+- Request:
+```json
+{
+  "project_id": "uuid | null",
+  "workshop_id": "uuid | null",
+  "current_step": "stories",
+  "status": "active",
+  "state_payload": {
+    "workshop": {},
+    "opportunity_pipeline_data": {},
+    "shaping_pipeline_data": {},
+    "artifact_pipeline_data": {},
+    "stories_pipeline_data": {}
+  }
+}
+```
+- Response: updated `WorkflowRunResponse`
+- Intended use:
+  - keep workflow progress durable across refreshes
+  - resume a specific workflow from the Workshop list page
+  - decouple saved workflow state from whichever Mural was most recently opened
+
+### `POST /api/jira/export`
+- Request: `{ "project_key": "PROD", "stories": [...approved stories...], "parent_strategy": "none|feature-as-epic|initiative-as-epic", "artifacts": [...approved artifacts...] }`
+- Response: `{ "issues": [{ "story_id": "story_1", "issue_key": "PROD-101", "issue_url": "https://.../browse/PROD-101", "parent_issue_key": "PROD-100" }] }`
 
 ### `POST /api/feature/generate`
 - Request: `{ "initiatives": [...] }`
@@ -38,7 +353,33 @@ All endpoints return JSON and are synchronous for the MVP.
 - Request: `{ "project_key": "string | null", "stories": [...] }`
 - Response: `{ "issues": [{ "story_title": "...", "issue_key": "...", "issue_url": "..." }] }`
 
+## Connectors
+
+### `GET /api/connectors/mural/connect`
+- Response: `{ "provider": "mural", "authorization_url": "...", "state": "..." }`
+
+### `GET /api/connectors/mural/callback?code=...&state=...`
+- Behavior: exchanges the OAuth code, persists the connection, then redirects browser to the web app callback route
+- Redirect target: `http://localhost:5173/oauth/mural/callback?provider=mural&state=...&connected=true&username=...&full_name=...`
+
+### `GET /api/connectors/mural/status?state=...`
+- Response: same as callback response
+
+### `GET /api/connectors/mural/workspaces?state=...`
+- Response: `{ "provider": "mural", "workspaces": [{ "id": "...", "name": "...", "member_count": 0 }] }`
+
+### `GET /api/connectors/mural/workspaces/{workspace_id}/rooms?state=...`
+- Response: `{ "provider": "mural", "rooms": [{ "id": "...", "name": "...", "workspace_id": "..." }] }`
+
+### `GET /api/connectors/mural/workspaces/{workspace_id}/murals?state=...`
+- Response: `{ "provider": "mural", "murals": [{ "id": "...", "name": "...", "workspace_id": "...", "room_id": "...", "last_modified": "..." }] }`
+
+### `GET /api/connectors/mural/murals/{mural_id}/widgets?state=...`
+- Response: `{ "provider": "mural", "widgets": [{ "id": "...", "type": "...", "text": "...", "title": "...", "parent_id": "...", "raw": {} }] }`
+
+### `POST /api/connectors/mural/murals/{mural_id}/import?state=...`
+- Response: `{ "provider": "mural", "mural_id": "...", "mural_name": "...", "imported_widget_count": 0, "extracted_text_count": 0, "extracted_text": [], "insights": { ... }, "journey": { "stages": [{ "stage": "Entice", "categories": { "experience_steps": [], "interactions": [], "goals_and_motivations": [], "positive_moments": [], "negative_moments": [], "areas_of_opportunity": [] } }], "uncategorized": [] } }`
+
 ## Errors
 - FastAPI validation errors use standard HTTP `422`
 - Runtime and application errors should return `{ "detail": "..." }`
-
