@@ -6,6 +6,88 @@ Endpoints return JSON unless otherwise noted. The legacy generation endpoints ar
 
 ## Endpoints
 
+## Skills
+
+Skills are reusable cross-project behavior definitions that shape how agents and workflow generation should behave.
+
+### `POST /api/skills`
+- Request:
+```json
+{
+  "name": "Default Feature Spec Skill",
+  "slug": "default-feature-spec-skill",
+  "skill_type": "feature_spec",
+  "description": "Default ProductOS skill for writing PM-ready feature specs.",
+  "is_active": true,
+  "instructions": "Write one PM-ready feature spec grounded in the provided source material.",
+  "required_sections": ["problem_statement", "user_segment", "proposed_solution"],
+  "quality_bar": ["Ground the output in the input"],
+  "integration_notes": ["Map cleanly to Jira epic export"]
+}
+```
+- Response: `SkillResponse`
+
+### `GET /api/skills?skill_type=feature_spec&active_only=true`
+- Response: `{ "skills": [ ...SkillSummary ] }`
+
+### `GET /api/skills/{skill_id}`
+- Response: `SkillResponse`
+
+### `PATCH /api/skills/{skill_id}`
+- Request: any subset of:
+  - `name`
+  - `slug`
+  - `skill_type`
+  - `description`
+  - `is_active`
+  - `instructions`
+  - `required_sections`
+  - `quality_bar`
+  - `integration_notes`
+- Response: updated `SkillResponse`
+
+## Agents
+
+### `POST /api/agents/feature-generator`
+- Purpose: first reusable manual agent outside the workshop flow
+- Request:
+```json
+{
+  "project_id": "uuid",
+  "source_type": "prompt|opportunity|requirement",
+  "source_title": "string",
+  "source_summary": "string",
+  "source_details": "string",
+  "desired_outcome": "string",
+  "constraints": ["string"],
+  "supporting_context": ["string"]
+}
+```
+- Response:
+```json
+{
+  "feature": {
+    "feature_id": "feature_agent_1",
+    "status": "draft",
+    "title": "string",
+    "summary": "string",
+    "body": {
+      "problem_statement": "string",
+      "user_segment": "string",
+      "proposed_solution": "string",
+      "user_value": "string",
+      "business_value": "string",
+      "functional_requirements": ["string"],
+      "non_functional_requirements": ["string"],
+      "dependencies": ["string"],
+      "success_metrics": ["string"],
+      "priority": "high|medium|low"
+    }
+  }
+}
+```
+- Behavior: uses the OpenAI Responses API, automatically applies the active `feature_spec` skill, and fails explicitly when AI is unavailable or generation fails
+
 ## Projects
 
 Projects are the intended top-level container for discovery and delivery work. Workshops and workflow runs should be created inside a project whenever the UI already has project context.
@@ -106,7 +188,7 @@ Workshops are now a first-class discovery entity that belongs to a project.
 ### `POST /api/artifacts/generate`
 - Request: `{ "shaped": [{ "id": "shaped-1", "derived_from_opportunity_id": "opp_1", "recommended_type": "Feature", "chosen_type": "Feature", "title": "...", "problem_statement": "...", "rationale": "...", "scope": "Small - 1-2 sprints" }] }`
 - Response: `{ "artifacts": [{ "artifact_id": "artifact_1", "artifact_type": "initiative|feature|enhancement", "derived_from_solution_id": "shaped-1", "status": "draft", "title": "...", "summary": "...", "body": { ...type-specific fields... } }] }`
-- Behavior: uses the OpenAI Responses API and fails explicitly when AI is unavailable or generation fails
+- Behavior: uses the OpenAI Responses API; `feature` artifacts also follow the active `feature_spec` skill
 
 Feature body shape now includes canonical PM fields:
 - `problem_statement`
@@ -139,6 +221,10 @@ These endpoints are the preferred path for long-running AI work so the UI can st
 ### `POST /api/jobs/opportunity-synthesis`
 - Request: same as `POST /api/opportunity/synthesize`
 - Response: `{ "job": { "id": "uuid", "job_type": "opportunity_synthesis", "status": "queued", "progress_stage": "queued", "progress_message": "Queued for AI opportunity synthesis.", "input_payload": { ... }, "result_payload": null, "error_message": null, "created_at": "...", "updated_at": "...", "completed_at": null } }`
+
+### `POST /api/jobs/feature-generation`
+- Request: same as `POST /api/agents/feature-generator`
+- Response: same job wrapper with `job_type = "feature_generation"`
 
 ### `POST /api/jobs/solution-shaping`
 - Request: same as `POST /api/solution-shaping/synthesize`

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import WorkflowList from "./WorkflowList";
 import { createWorkshop, getWorkshop, getWorkshops } from "../api/workshops";
+import { getSkills } from "../api/skills";
 import {
   getWorkflow, restoreWorkflowState, clearWorkflowState,
   storeCurrentWorkshopId,
@@ -11,6 +12,7 @@ const TABS = [
   { id: "overview",  label: "Overview",  icon: "grid_view"    },
   { id: "workshops", label: "Workshops", icon: "groups"       },
   { id: "workflows", label: "Workflows", icon: "account_tree" },
+  { id: "agents",    label: "Agents",    icon: "smart_toy"    },
   { id: "backlog",   label: "Backlog",   icon: "assignment"   },
   { id: "roadmap",   label: "Roadmap",   icon: "map"          },
 ];
@@ -91,6 +93,7 @@ function WorkshopCard({ workshop, onOpen }) {
   const source    = workshop.import_meta?.source;
   const sourceCfg = SOURCE_CONFIG[source] ?? SOURCE_CONFIG.manual;
   const hasRun    = Boolean(workshop.current_workflow_id);
+  const isCompleted = workshop.status === "completed";
   const step      = STEP_LABEL[workshop.latest_workflow_step];
   const updated   = relativeTime(workshop.updated_at);
 
@@ -159,8 +162,10 @@ function WorkshopCard({ workshop, onOpen }) {
                 : "bg-surface-container text-on-surface border border-outline hover:border-primary hover:text-primary",
             ].join(" ")}
           >
-            <span className="material-symbols-outlined text-[13px]">{hasRun ? "play_arrow" : "add"}</span>
-            {hasRun ? "Resume" : "Start Run"}
+            <span className="material-symbols-outlined text-[13px]">
+              {hasRun ? (isCompleted ? "visibility" : "play_arrow") : "add"}
+            </span>
+            {hasRun ? (isCompleted ? "View" : "Resume") : "Start Run"}
           </button>
         </div>
 
@@ -368,6 +373,89 @@ function OverviewTab({ project, onNewWorkshop }) {
   );
 }
 
+// ─── Agents tab ───────────────────────────────────────────────────────────────
+const AGENT_CATALOG = [
+  {
+    id:          "feature-generator",
+    icon:        "auto_awesome",
+    name:        "Feature Generator",
+    description: "Generate a PM-ready feature draft from a problem statement, user research, or requirement context.",
+    color:       "text-violet-500",
+    bg:          "bg-violet-50 border-violet-100",
+    stripe:      "from-violet-400 via-violet-300 to-primary",
+  },
+];
+
+function AgentsTab({ project, onNavigate }) {
+  const [featureSkill, setFeatureSkill] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSkills("feature_spec", true)
+      .then((result) => {
+        if (cancelled) return;
+        const rows = Array.isArray(result) ? result : (result.skills ?? []);
+        setFeatureSkill(rows[0] ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setFeatureSkill(null);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div>
+      <p className="text-sm text-on-surface-variant mb-6">
+        Reusable AI agents that run independently within this project's context.
+      </p>
+      {featureSkill && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-surface-container border border-outline rounded-xl mb-6">
+          <span className="material-symbols-outlined text-[15px] text-on-surface-variant">psychology</span>
+          <span className="text-[12px] text-on-surface-variant">Active Feature Spec Skill</span>
+          <span className="text-[12px] font-bold text-on-surface">{featureSkill.name}</span>
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {AGENT_CATALOG.map((agent) => (
+          <div
+            key={agent.id}
+            className="bg-surface border border-outline rounded-2xl overflow-hidden shadow-card hover:shadow-md hover:-translate-y-0.5 hover:border-primary/25 transition-all duration-200 flex flex-col cursor-pointer group"
+            onClick={() => onNavigate?.(agent.id, project)}
+          >
+            <div className={`h-[5px] bg-gradient-to-r ${agent.stripe}`} />
+            <div className="p-6 flex flex-col gap-4 flex-1">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border-2 shadow-sm ${agent.bg}`}>
+                <span
+                  className={`material-symbols-outlined text-[22px] ${agent.color}`}
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  {agent.icon}
+                </span>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-headline font-bold text-on-surface">{agent.name}</p>
+                <p className="text-[12px] text-on-surface-variant mt-1.5 leading-relaxed">{agent.description}</p>
+                {featureSkill && agent.id === "feature-generator" && (
+                  <p className="text-[11px] text-on-surface-variant mt-2">
+                    Uses <span className="font-semibold text-on-surface">{featureSkill.name}</span>
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onNavigate?.(agent.id, project); }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-bold rounded-lg hover:bg-primary-dim transition-all shadow-sm w-fit"
+              >
+                <span className="material-symbols-outlined text-[15px]">play_arrow</span>
+                Run Agent
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function ProjectDetail({ project, onNavigate }) {
 
@@ -511,6 +599,10 @@ export default function ProjectDetail({ project, onNavigate }) {
             embedded={true}
             onNewWorkshop={handleNewWorkshop}
           />
+        )}
+
+        {activeTab === "agents" && (
+          <AgentsTab project={project} onNavigate={onNavigate} />
         )}
 
         {activeTab === "backlog" && (

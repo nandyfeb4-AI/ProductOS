@@ -8,6 +8,7 @@ import httpx
 
 from app.core.config import settings
 from app.schemas.artifacts import ArtifactGenerateRequest, GeneratedArtifact
+from app.services.feature_spec_skill import build_feature_spec_instructions, normalize_feature_spec_body
 
 
 class ArtifactGenerationLLMService:
@@ -22,7 +23,7 @@ class ArtifactGenerationLLMService:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    def generate(self, payload: ArtifactGenerateRequest) -> list[GeneratedArtifact]:
+    def generate(self, payload: ArtifactGenerateRequest, feature_spec_skill: dict[str, Any] | None = None) -> list[GeneratedArtifact]:
         if not self.enabled:
             raise RuntimeError("OpenAI API key is not configured.")
 
@@ -49,7 +50,7 @@ class ArtifactGenerationLLMService:
                 "Use the chosen_type when present, otherwise recommended_type. "
                 "Return JSON only. Do not include markdown. "
                 "For initiative artifacts include body keys: desired_outcome, success_metrics, scope, assumptions, risks, priority. "
-                "For feature artifacts include body keys: problem_statement, user_segment, proposed_solution, user_value, business_value, functional_requirements, non_functional_requirements, dependencies, success_metrics, priority. "
+                f"For feature artifacts, follow this feature spec skill: {build_feature_spec_instructions(feature_spec_skill)} "
                 "For enhancement artifacts include body keys: current_capability, current_issue, proposed_improvement, expected_impact, affected_surfaces, priority. "
                 "Keep fields concise, PM-ready, and directly grounded in the supplied shaped solutions."
             ),
@@ -128,7 +129,7 @@ class ArtifactGenerationLLMService:
             if not isinstance(body, dict):
                 body = {}
             if artifact_type == "feature":
-                self._normalize_feature_body(body)
+                normalize_feature_spec_body(body)
             artifacts.append(
                 GeneratedArtifact(
                     artifact_id=f"artifact_{index}",
@@ -141,13 +142,3 @@ class ArtifactGenerationLLMService:
                 )
             )
         return artifacts
-
-    def _normalize_feature_body(self, body: dict[str, Any]) -> None:
-        problem_statement = str(body.get("problem_statement") or body.get("user_problem") or "").strip()
-        proposed_solution = str(body.get("proposed_solution") or body.get("solution_overview") or "").strip()
-        body["problem_statement"] = problem_statement
-        body["user_problem"] = problem_statement
-        body["proposed_solution"] = proposed_solution
-        body["solution_overview"] = proposed_solution
-        body.setdefault("user_segment", "")
-        body.setdefault("success_metrics", [])

@@ -11,9 +11,11 @@ import StorySlicing          from "./pages/StorySlicing";
 import JiraExport            from "./pages/JiraExport";
 import Connectors            from "./pages/Connectors";
 import WorkflowList          from "./pages/WorkflowList";
-import Projects              from "./pages/Projects";
-import ProjectDetail         from "./pages/ProjectDetail";
-import Placeholder           from "./pages/Placeholder";
+import Projects                from "./pages/Projects";
+import ProjectDetail           from "./pages/ProjectDetail";
+import FeatureGeneratorAgent   from "./pages/FeatureGeneratorAgent";
+import Skills                  from "./pages/Skills";
+import Placeholder             from "./pages/Placeholder";
 
 // ─── Stable placeholder components (defined outside to keep references stable) ─
 const PlaceholderBacklog = () => <Placeholder title="Backlog" />;
@@ -31,7 +33,9 @@ const VIEWS = {
   connectors:        Connectors,
   workflows:         WorkflowList,
   projects:          Projects,
-  "project-detail":  ProjectDetail,
+  skills:            Skills,
+  "project-detail":       ProjectDetail,
+  "feature-generator":    FeatureGeneratorAgent,
   backlog:           PlaceholderBacklog,
   team:              PlaceholderTeam,
   reports:           PlaceholderReports,
@@ -80,8 +84,9 @@ export default function App() {
     }} />;
   }
 
-  // Guard: workshop requires an active project — redirect to projects if none
-  const resolvedView = (activeView === "workshop" && !activeProject) ? "projects" : activeView;
+  // Guard: project-scoped views require an active project — redirect to projects if none
+  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator"]);
+  const resolvedView = (PROJECT_SCOPED_VIEWS.has(activeView) && !activeProject) ? "projects" : activeView;
   const ViewComponent = VIEWS[resolvedView] ?? VIEWS.dashboard;
 
   return (

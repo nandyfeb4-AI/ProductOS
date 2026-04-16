@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from app.repositories.connector_repository import ConnectorRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.skill_repository import SkillRepository
 from app.repositories.workshop_repository import WorkshopRepository
 from app.repositories.workflow_repository import WorkflowRepository
 from app.schemas.dashboard import DashboardSummaryResponse
@@ -22,6 +23,7 @@ from app.schemas.artifacts import (
     StorySliceWorkflowRequest,
     StorySliceWorkflowResponse,
 )
+from app.schemas.agents import FeatureGeneratorRequest, FeatureGeneratorResponse
 from app.schemas.common import InsightBundle, StoryArtifact
 from app.schemas.feature import Feature, FeatureGenerateRequest, FeatureGenerateResponse
 from app.schemas.initiative import Initiative, InitiativeGenerateRequest, InitiativeGenerateResponse
@@ -50,6 +52,7 @@ from app.schemas.projects import (
     ProjectSummary,
     ProjectUpdateRequest,
 )
+from app.schemas.skills import SkillCreateRequest, SkillListResponse, SkillResponse, SkillSummary, SkillUpdateRequest
 from app.schemas.story import (
     StoryGenerateRequest,
     StoryGenerateResponse,
@@ -74,6 +77,8 @@ from app.schemas.workflow_runs import (
 )
 from app.services.mural_service import MuralService
 from app.services.artifact_generation_llm_service import ArtifactGenerationLLMService
+from app.services.feature_generation_llm_service import FeatureGenerationLLMService
+from app.services.feature_spec_skill import default_feature_spec_skill
 from app.services.jira_service import JiraService
 from app.services.opportunity_llm_service import OpportunityLLMService
 from app.services.solution_shaping_llm_service import SolutionShapingLLMService
@@ -104,10 +109,12 @@ class PipelineService:
         self.opportunity_llm_service = OpportunityLLMService()
         self.solution_shaping_llm_service = SolutionShapingLLMService()
         self.artifact_generation_llm_service = ArtifactGenerationLLMService()
+        self.feature_generation_llm_service = FeatureGenerationLLMService()
         self.story_slicing_llm_service = StorySlicingLLMService()
         self.jira_service = JiraService()
         self.connector_repository = ConnectorRepository()
         self.project_repository = ProjectRepository()
+        self.skill_repository = SkillRepository()
         self.workshop_repository = WorkshopRepository()
         self.workflow_repository = WorkflowRepository()
         self.mural_service = MuralService()
@@ -274,7 +281,8 @@ class PipelineService:
             raise RuntimeError("AI artifact generation is unavailable. Configure the OpenAI API key and retry.")
         try:
             generated = self.artifact_generation_llm_service.generate(
-                ArtifactGenerateRequest(shaped=actionable)
+                ArtifactGenerateRequest(shaped=actionable),
+                feature_spec_skill=self._get_active_feature_spec_skill(),
             )
         except Exception as exc:
             self.logger.exception("AI artifact generation failed")
@@ -422,6 +430,7 @@ class PipelineService:
         if workshop_row is not None:
             self.workshop_repository.update_workshop(
                 str(workshop_row["id"]),
+                status=self._resolve_workshop_status_from_workflow(row["status"]),
                 current_workflow_id=str(row["id"]),
                 latest_workflow_step=row["current_step"],
                 latest_workflow_status=row["status"],
@@ -473,6 +482,7 @@ class PipelineService:
         if row.get("workshop_id"):
             self.workshop_repository.update_workshop(
                 str(row["workshop_id"]),
+                status=self._resolve_workshop_status_from_workflow(row["status"]),
                 current_workflow_id=str(row["id"]),
                 latest_workflow_step=row["current_step"],
                 latest_workflow_status=row["status"],
@@ -563,6 +573,47 @@ class PipelineService:
         )
         return WorkshopResponse(**row)
 
+    def create_skill(self, payload: SkillCreateRequest) -> SkillResponse:
+        row = self.skill_repository.create_skill(
+            name=payload.name,
+            slug=payload.slug,
+            skill_type=payload.skill_type,
+            description=payload.description,
+            is_active=payload.is_active,
+            instructions=payload.instructions,
+            required_sections=payload.required_sections,
+            quality_bar=payload.quality_bar,
+            integration_notes=payload.integration_notes,
+        )
+        return SkillResponse(**row)
+
+    def list_skills(self, skill_type: str | None = None, active_only: bool | None = None) -> SkillListResponse:
+        rows = self.skill_repository.list_skills(skill_type, active_only)
+        return SkillListResponse(skills=[SkillSummary(**row) for row in rows])
+
+    def get_skill(self, skill_id: str) -> SkillResponse:
+        row = self.skill_repository.get_skill(skill_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found.")
+        return SkillResponse(**row)
+
+    def update_skill(self, skill_id: str, payload: SkillUpdateRequest) -> SkillResponse:
+        if self.skill_repository.get_skill(skill_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill not found.")
+        row = self.skill_repository.update_skill(
+            skill_id,
+            name=payload.name,
+            slug=payload.slug,
+            skill_type=payload.skill_type,
+            description=payload.description,
+            is_active=payload.is_active,
+            instructions=payload.instructions,
+            required_sections=payload.required_sections,
+            quality_bar=payload.quality_bar,
+            integration_notes=payload.integration_notes,
+        )
+        return SkillResponse(**row)
+
     def get_dashboard_summary(self) -> DashboardSummaryResponse:
         workshop_rows = self.workshop_repository.list_workshops()
         rows = self.workflow_repository.list_workflows("workshop")
@@ -609,6 +660,18 @@ class PipelineService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workshop not found.")
         return row
 
+    def _get_active_feature_spec_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("feature_spec") or default_feature_spec_skill()
+
+    def _resolve_workshop_status_from_workflow(self, workflow_status: str | None) -> str | None:
+        if workflow_status == "completed":
+            return "completed"
+        if workflow_status in {"active", "running"}:
+            return "active"
+        if workflow_status == "draft":
+            return "draft"
+        return None
+
     def generate_features(self, payload: FeatureGenerateRequest) -> FeatureGenerateResponse:
         features = [
             Feature(
@@ -620,6 +683,20 @@ class PipelineService:
             for initiative in payload.initiatives
         ]
         return FeatureGenerateResponse(features=features)
+
+    def run_feature_generator(self, payload: FeatureGeneratorRequest) -> FeatureGeneratorResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        if not self.feature_generation_llm_service.enabled:
+            raise RuntimeError("AI feature generation is unavailable. Configure the OpenAI API key and retry.")
+        try:
+            feature = self.feature_generation_llm_service.generate(
+                payload,
+                skill=self._get_active_feature_spec_skill(),
+            )
+        except Exception as exc:
+            self.logger.exception("AI feature generation failed")
+            raise RuntimeError("AI feature generation failed. Please retry.") from exc
+        return FeatureGeneratorResponse(feature=feature)
 
     def generate_prd(self, payload: PRDGenerateRequest) -> PRDGenerateResponse:
         prd = PRDDocument(

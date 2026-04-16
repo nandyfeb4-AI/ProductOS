@@ -1,6 +1,7 @@
 const NAV_ITEMS = [
   { icon: "dashboard",   label: "Dashboard",  view: "dashboard"  },
   { icon: "inventory_2", label: "Projects",   view: "projects"   },
+  { icon: "psychology",  label: "Skills",     view: "skills"     },
   { icon: "cable",       label: "Connectors", view: "connectors" },
   { icon: "history",     label: "Workflows",  view: "workflows"  },
   { icon: "assignment",  label: "Backlog",    view: "backlog"    },
@@ -10,7 +11,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ activeView, onNavigate }) {
   // Pipeline views are entered from a project — keep Projects highlighted
-  const PROJECT_VIEWS = new Set(["project-detail", "workshop", "opportunity", "shaping", "artifacts", "stories", "jira"]);
+  const PROJECT_VIEWS = new Set(["project-detail", "workshop", "opportunity", "shaping", "artifacts", "stories", "jira", "feature-generator"]);
   const effectiveView = PROJECT_VIEWS.has(activeView) ? "projects" : activeView;
   return (
     <aside className="group flex flex-col h-screen fixed left-0 top-0 w-20 hover:w-64 transition-all duration-300 ease-in-out bg-sidebar border-r border-slate-800 z-50 overflow-hidden shadow-sidebar">

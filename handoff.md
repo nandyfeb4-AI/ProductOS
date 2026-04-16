@@ -4,6 +4,58 @@ This file is the active source of truth for Claude Code UI work and Codex backen
 
 If anything in older chat history conflicts with this file, this file wins.
 
+## Active Skill + Agent Context
+
+The first reusable agent is now shipped:
+
+- `Feature Generator`
+
+And the first reusable cross-project skill is now shipped:
+
+- `Feature Spec Skill`
+
+Important distinction:
+
+- workflow = guided multi-step path
+- agent = reusable focused task that can be run independently
+- skill = reusable cross-project behavior definition that shapes how an agent or workflow writes output
+
+### Current Shipped State
+
+- global left-nav `Skills` page exists
+- active `Feature Spec Skill` is editable in UI
+- `Feature Generator` automatically uses the active `feature_spec` skill
+- workflow `feature` artifact generation also automatically uses the active `feature_spec` skill
+- project `Agents` tab shows the active feature spec skill in project context
+- `Feature Generator` page shows which skill it is using
+
+### Backend Available
+
+- `POST /api/agents/feature-generator`
+- `POST /api/jobs/feature-generation`
+- `GET /api/jobs/{job_id}`
+- `WS /api/jobs/ws/{job_id}`
+- `POST /api/skills`
+- `GET /api/skills`
+- `GET /api/skills/{skill_id}`
+- `PATCH /api/skills/{skill_id}`
+
+### Current Product Rule
+
+- skills are global and reusable across all projects
+- the currently active `feature_spec` skill is the one that shapes feature writing everywhere
+- project context should surface which skill is in effect, even though selection is currently global
+
+### What Claude Should Do Next
+
+If more UI work is needed around this area, build on top of the current model instead of reworking it:
+
+- keep `Skills` as a left-nav global surface
+- keep `Feature Spec Skill` as the first editable skill
+- do not rename `Skills` back to templates
+- future feature-related agents should reuse the same `feature_spec` skill pattern
+- future story-related agents should likely introduce a parallel `story_spec` or `story_slicing` skill instead of hardcoding prompt structure
+
 ## Active Product Direction
 
 ProductOS is moving from a `Workshop-first` app to a `Project-first` app.
