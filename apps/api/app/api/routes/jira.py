@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_pipeline_service
 from app.schemas.jira import JiraPushRequest, JiraPushResponse
-from app.schemas.jira_connector import JiraExportRequest, JiraExportResponse
+from app.schemas.jira_connector import (
+    JiraExportRequest,
+    JiraExportResponse,
+    JiraFeatureExportRequest,
+    JiraFeatureExportResponse,
+)
 from app.services.pipeline_service import PipelineService
 
 router = APIRouter()
@@ -22,3 +27,11 @@ async def export_to_jira(
     service: PipelineService = Depends(get_pipeline_service),
 ) -> JiraExportResponse:
     return service.export_to_jira(payload)
+
+
+@router.post("/export-feature", response_model=JiraFeatureExportResponse)
+async def export_feature_to_jira(
+    payload: JiraFeatureExportRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> JiraFeatureExportResponse:
+    return service.export_feature_to_jira(payload)

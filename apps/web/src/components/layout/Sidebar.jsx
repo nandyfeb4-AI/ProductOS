@@ -11,7 +11,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ activeView, onNavigate }) {
   // Pipeline views are entered from a project — keep Projects highlighted
-  const PROJECT_VIEWS = new Set(["project-detail", "workshop", "opportunity", "shaping", "artifacts", "stories", "jira", "feature-generator"]);
+  const PROJECT_VIEWS = new Set(["project-detail", "workshop", "opportunity", "shaping", "artifacts", "stories", "jira", "feature-generator", "story-generator"]);
   const effectiveView = PROJECT_VIEWS.has(activeView) ? "projects" : activeView;
   return (
     <aside className="group flex flex-col h-screen fixed left-0 top-0 w-20 hover:w-64 transition-all duration-300 ease-in-out bg-sidebar border-r border-slate-800 z-50 overflow-hidden shadow-sidebar">

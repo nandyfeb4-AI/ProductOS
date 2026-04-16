@@ -10,6 +10,7 @@ import httpx
 
 from app.core.config import settings
 from app.repositories.connector_repository import ConnectorRepository
+from app.schemas.agents import FeatureDraft
 from app.schemas.artifacts import GeneratedArtifact
 from app.schemas.jira_connector import (
     JiraConnectRequest,
@@ -17,6 +18,8 @@ from app.schemas.jira_connector import (
     JiraExportIssue,
     JiraExportRequest,
     JiraExportResponse,
+    JiraFeatureExportRequest,
+    JiraFeatureExportResponse,
     JiraProject,
     JiraProjectsResponse,
 )
@@ -243,9 +246,9 @@ class JiraService:
                 issue_types=issue_types,
             )
 
-        child_issue_type = issue_types.get("Story") or issue_types.get("Task") or issue_types.get("Sub-task")
+        child_issue_type = issue_types.get("Story") or issue_types.get("Task")
         if child_issue_type is None:
-            raise RuntimeError("No Jira Story, Task, or Sub-task issue type is available in this workspace.")
+            raise RuntimeError("No Jira Story or Task issue type is available in this workspace.")
 
         for story in payload.stories:
             fields: dict[str, Any] = {
@@ -271,6 +274,43 @@ class JiraService:
             )
 
         return JiraExportResponse(issues=issues)
+
+    def export_feature(self, payload: JiraFeatureExportRequest) -> JiraFeatureExportResponse:
+        session = self._require_session()
+        issue_types = self._get_issue_type_map(session, payload.project_key)
+        issue_type = issue_types.get("Epic") or issue_types.get("Task")
+        if issue_type is None:
+            raise RuntimeError("No Jira Epic or Task issue type is available in this workspace.")
+
+        feature_artifact = self._feature_to_generated_artifact(payload.feature)
+        fields: dict[str, Any] = {
+            "project": {"key": payload.project_key},
+            "summary": feature_artifact.title,
+            "description": self._artifact_to_adf(feature_artifact),
+            "issuetype": {"id": issue_type["id"]},
+        }
+        self._apply_reporter(fields, session)
+
+        epic_name_field = self._discover_epic_name_field(session) if issue_type["name"].lower() == "epic" else None
+        if epic_name_field:
+            fields[epic_name_field] = feature_artifact.title
+
+        try:
+            response = self._post(session, "/rest/api/3/issue", {"fields": fields})
+        except RuntimeError as exc:
+            if epic_name_field and epic_name_field in fields:
+                fallback_fields = dict(fields)
+                fallback_fields.pop(epic_name_field, None)
+                response = self._post(session, "/rest/api/3/issue", {"fields": fallback_fields})
+            else:
+                raise exc
+
+        issue_key = str(response.get("key", ""))
+        return JiraFeatureExportResponse(
+            issue_key=issue_key,
+            issue_url=f"{session.base_url}/browse/{issue_key}",
+            issue_type=str(issue_type["name"]),
+        )
 
     def _ensure_parent_issues(
         self,
@@ -434,6 +474,17 @@ class JiraService:
             elif value:
                 self._append_text_section(sections, label, [str(value)])
         return self._doc_from_blocks(sections)
+
+    def _feature_to_generated_artifact(self, feature: FeatureDraft) -> GeneratedArtifact:
+        return GeneratedArtifact(
+            artifact_id=feature.feature_id,
+            artifact_type="feature",
+            derived_from_solution_id="feature-generator",
+            status=feature.status,
+            title=feature.title,
+            summary=feature.summary,
+            body=feature.body,
+        )
 
     def _paragraph_adf(self, lines: list[str]) -> dict[str, Any]:
         content = []

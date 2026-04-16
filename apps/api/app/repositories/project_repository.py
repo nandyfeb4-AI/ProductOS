@@ -124,6 +124,12 @@ class ProjectRepository:
                     ), 0)
                     from workflow_runs wr
                     where wr.project_id = p.id
+                )::int
+                +
+                (
+                    select count(*)
+                    from project_features pf
+                    where pf.project_id = p.id
                 )::int as feature_count,
                 (
                     select coalesce(sum(
@@ -146,6 +152,12 @@ class ProjectRepository:
                     ), 0)
                     from workflow_runs wr
                     where wr.project_id = p.id
+                )::int
+                +
+                (
+                    select count(*)
+                    from project_stories ps
+                    where ps.project_id = p.id
                 )::int as story_count
             from projects p
         """

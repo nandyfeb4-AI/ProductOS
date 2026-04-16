@@ -6,7 +6,9 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 
 from app.repositories.connector_repository import ConnectorRepository
+from app.repositories.project_feature_repository import ProjectFeatureRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.project_story_repository import ProjectStoryRepository
 from app.repositories.skill_repository import SkillRepository
 from app.repositories.workshop_repository import WorkshopRepository
 from app.repositories.workflow_repository import WorkflowRepository
@@ -23,7 +25,12 @@ from app.schemas.artifacts import (
     StorySliceWorkflowRequest,
     StorySliceWorkflowResponse,
 )
-from app.schemas.agents import FeatureGeneratorRequest, FeatureGeneratorResponse
+from app.schemas.agents import (
+    FeatureGeneratorRequest,
+    FeatureGeneratorResponse,
+    StoryGeneratorRequest,
+    StoryGeneratorResponse,
+)
 from app.schemas.common import InsightBundle, StoryArtifact
 from app.schemas.feature import Feature, FeatureGenerateRequest, FeatureGenerateResponse
 from app.schemas.initiative import Initiative, InitiativeGenerateRequest, InitiativeGenerateResponse
@@ -33,6 +40,8 @@ from app.schemas.jira_connector import (
     JiraConnectResponse,
     JiraExportRequest,
     JiraExportResponse,
+    JiraFeatureExportRequest,
+    JiraFeatureExportResponse,
     JiraProjectsResponse,
 )
 from app.schemas.connector_hub import ConnectorListResponse, ConnectorSummary
@@ -51,6 +60,20 @@ from app.schemas.projects import (
     ProjectResponse,
     ProjectSummary,
     ProjectUpdateRequest,
+)
+from app.schemas.project_features import (
+    ProjectFeatureCreateRequest,
+    ProjectFeatureListResponse,
+    ProjectFeatureResponse,
+    ProjectFeatureSummary,
+    ProjectFeatureUpdateRequest,
+)
+from app.schemas.project_stories import (
+    ProjectStoryCreateRequest,
+    ProjectStoryListResponse,
+    ProjectStoryResponse,
+    ProjectStorySummary,
+    ProjectStoryUpdateRequest,
 )
 from app.schemas.skills import SkillCreateRequest, SkillListResponse, SkillResponse, SkillSummary, SkillUpdateRequest
 from app.schemas.story import (
@@ -83,6 +106,8 @@ from app.services.jira_service import JiraService
 from app.services.opportunity_llm_service import OpportunityLLMService
 from app.services.solution_shaping_llm_service import SolutionShapingLLMService
 from app.services.story_slicing_llm_service import StorySlicingLLMService
+from app.services.story_generation_llm_service import StoryGenerationLLMService
+from app.services.story_spec_skill import default_story_spec_skill
 from app.schemas.solution_shaping import (
     ShapedSolution,
     SolutionShapingConfirmRequest,
@@ -110,9 +135,12 @@ class PipelineService:
         self.solution_shaping_llm_service = SolutionShapingLLMService()
         self.artifact_generation_llm_service = ArtifactGenerationLLMService()
         self.feature_generation_llm_service = FeatureGenerationLLMService()
+        self.story_generation_llm_service = StoryGenerationLLMService()
         self.story_slicing_llm_service = StorySlicingLLMService()
         self.jira_service = JiraService()
         self.connector_repository = ConnectorRepository()
+        self.project_feature_repository = ProjectFeatureRepository()
+        self.project_story_repository = ProjectStoryRepository()
         self.project_repository = ProjectRepository()
         self.skill_repository = SkillRepository()
         self.workshop_repository = WorkshopRepository()
@@ -357,6 +385,19 @@ class PipelineService:
 
     def export_to_jira(self, payload: JiraExportRequest) -> JiraExportResponse:
         return self.jira_service.export(payload)
+
+    def export_feature_to_jira(self, payload: JiraFeatureExportRequest) -> JiraFeatureExportResponse:
+        result = self.jira_service.export_feature(payload)
+        feature_row = self.project_feature_repository.get_feature(payload.feature.feature_id)
+        if feature_row is not None:
+            self.project_feature_repository.update_feature(
+                payload.feature.feature_id,
+                status="exported",
+                jira_issue_key=result.issue_key,
+                jira_issue_url=result.issue_url,
+                jira_issue_type=result.issue_type,
+            )
+        return result
 
     def list_connectors(self) -> ConnectorListResponse:
         connected_rows = {row["provider"]: row for row in self.connector_repository.list_connector_overview()}
@@ -617,12 +658,14 @@ class PipelineService:
     def get_dashboard_summary(self) -> DashboardSummaryResponse:
         workshop_rows = self.workshop_repository.list_workshops()
         rows = self.workflow_repository.list_workflows("workshop")
+        feature_rows = self.project_feature_repository.list_features()
+        story_rows = self.project_story_repository.list_stories()
 
         workshops = len(workshop_rows)
         active_flows = sum(1 for row in rows if row.get("status") in {"active", "draft"})
         initiatives = 0
-        features = 0
-        ready_stories = 0
+        features = len(feature_rows)
+        ready_stories = len(story_rows)
 
         for row in rows:
             state_payload = row.get("state_payload") or {}
@@ -646,9 +689,155 @@ class PipelineService:
             active_flows=active_flows,
         )
 
+    def create_project_feature(self, payload: ProjectFeatureCreateRequest) -> ProjectFeatureResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        row = self.project_feature_repository.create_feature(
+            project_id=str(payload.project_id),
+            source_type=payload.source_type,
+            source_title=payload.source_title,
+            source_summary=payload.source_summary,
+            source_details=payload.source_details,
+            desired_outcome=payload.desired_outcome,
+            constraints=payload.constraints,
+            supporting_context=payload.supporting_context,
+            status=payload.status,
+            generator_type=payload.generator_type,
+            skill_id=str(payload.skill_id) if payload.skill_id is not None else None,
+            skill_name=payload.skill_name,
+            title=payload.title,
+            summary=payload.summary,
+            body=payload.body,
+            jira_issue_key=payload.jira_issue_key,
+            jira_issue_url=payload.jira_issue_url,
+            jira_issue_type=payload.jira_issue_type,
+        )
+        return ProjectFeatureResponse(**row)
+
+    def create_project_story(self, payload: ProjectStoryCreateRequest) -> ProjectStoryResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        if payload.source_feature_id is not None:
+            self._ensure_project_feature_exists(str(payload.source_feature_id), str(payload.project_id))
+        row = self.project_story_repository.create_story(
+            project_id=str(payload.project_id),
+            source_type=payload.source_type,
+            source_feature_id=str(payload.source_feature_id) if payload.source_feature_id is not None else None,
+            status=payload.status,
+            generator_type=payload.generator_type,
+            skill_id=str(payload.skill_id) if payload.skill_id is not None else None,
+            skill_name=payload.skill_name,
+            title=payload.title,
+            user_story=payload.user_story,
+            as_a=payload.as_a,
+            i_want=payload.i_want,
+            so_that=payload.so_that,
+            description=payload.description,
+            acceptance_criteria=payload.acceptance_criteria,
+            edge_cases=payload.edge_cases,
+            dependencies=payload.dependencies,
+            priority=payload.priority,
+            jira_issue_key=payload.jira_issue_key,
+            jira_issue_url=payload.jira_issue_url,
+            jira_issue_type=payload.jira_issue_type,
+        )
+        return ProjectStoryResponse(**row)
+
+    def list_project_features(self, project_id: str | None = None, status: str | None = None) -> ProjectFeatureListResponse:
+        if project_id is not None:
+            self._ensure_project_exists(project_id)
+        rows = self.project_feature_repository.list_features(project_id, status)
+        return ProjectFeatureListResponse(features=[ProjectFeatureSummary(**row) for row in rows])
+
+    def list_project_stories(
+        self,
+        project_id: str | None = None,
+        source_feature_id: str | None = None,
+        status: str | None = None,
+    ) -> ProjectStoryListResponse:
+        if project_id is not None:
+            self._ensure_project_exists(project_id)
+        if source_feature_id is not None:
+            self._ensure_project_feature_exists(source_feature_id, project_id)
+        rows = self.project_story_repository.list_stories(project_id, source_feature_id, status)
+        return ProjectStoryListResponse(stories=[ProjectStorySummary(**row) for row in rows])
+
+    def get_project_feature(self, feature_id: str) -> ProjectFeatureResponse:
+        row = self.project_feature_repository.get_feature(feature_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project feature not found.")
+        return ProjectFeatureResponse(**row)
+
+    def get_project_story(self, story_id: str) -> ProjectStoryResponse:
+        row = self.project_story_repository.get_story(story_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project story not found.")
+        return ProjectStoryResponse(**row)
+
+    def update_project_feature(self, feature_id: str, payload: ProjectFeatureUpdateRequest) -> ProjectFeatureResponse:
+        if self.project_feature_repository.get_feature(feature_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project feature not found.")
+        row = self.project_feature_repository.update_feature(
+            feature_id,
+            source_type=payload.source_type,
+            source_title=payload.source_title,
+            source_summary=payload.source_summary,
+            source_details=payload.source_details,
+            desired_outcome=payload.desired_outcome,
+            constraints=payload.constraints,
+            supporting_context=payload.supporting_context,
+            status=payload.status,
+            generator_type=payload.generator_type,
+            skill_id=str(payload.skill_id) if payload.skill_id is not None else None,
+            skill_name=payload.skill_name,
+            title=payload.title,
+            summary=payload.summary,
+            body=payload.body,
+            jira_issue_key=payload.jira_issue_key,
+            jira_issue_url=payload.jira_issue_url,
+            jira_issue_type=payload.jira_issue_type,
+        )
+        return ProjectFeatureResponse(**row)
+
+    def update_project_story(self, story_id: str, payload: ProjectStoryUpdateRequest) -> ProjectStoryResponse:
+        current = self.project_story_repository.get_story(story_id)
+        if current is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project story not found.")
+        if payload.source_feature_id is not None:
+            self._ensure_project_feature_exists(str(payload.source_feature_id), str(current["project_id"]))
+        row = self.project_story_repository.update_story(
+            story_id,
+            source_type=payload.source_type,
+            source_feature_id=str(payload.source_feature_id) if payload.source_feature_id is not None else None,
+            status=payload.status,
+            generator_type=payload.generator_type,
+            skill_id=str(payload.skill_id) if payload.skill_id is not None else None,
+            skill_name=payload.skill_name,
+            title=payload.title,
+            user_story=payload.user_story,
+            as_a=payload.as_a,
+            i_want=payload.i_want,
+            so_that=payload.so_that,
+            description=payload.description,
+            acceptance_criteria=payload.acceptance_criteria,
+            edge_cases=payload.edge_cases,
+            dependencies=payload.dependencies,
+            priority=payload.priority,
+            jira_issue_key=payload.jira_issue_key,
+            jira_issue_url=payload.jira_issue_url,
+            jira_issue_type=payload.jira_issue_type,
+        )
+        return ProjectStoryResponse(**row)
+
     def _ensure_project_exists(self, project_id: str) -> None:
         if self.project_repository.get_project(project_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+    def _ensure_project_feature_exists(self, feature_id: str, project_id: str | None = None) -> dict:
+        row = self.project_feature_repository.get_feature(feature_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project feature not found.")
+        if project_id is not None and str(row["project_id"]) != str(project_id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project feature does not belong to the specified project.")
+        return row
 
     def _ensure_workshop_exists(self, workshop_id: str) -> None:
         if self.workshop_repository.get_workshop(workshop_id) is None:
@@ -662,6 +851,9 @@ class PipelineService:
 
     def _get_active_feature_spec_skill(self) -> dict:
         return self.skill_repository.get_active_skill("feature_spec") or default_feature_spec_skill()
+
+    def _get_active_story_spec_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("story_spec") or default_story_spec_skill()
 
     def _resolve_workshop_status_from_workflow(self, workflow_status: str | None) -> str | None:
         if workflow_status == "completed":
@@ -688,15 +880,74 @@ class PipelineService:
         self._ensure_project_exists(str(payload.project_id))
         if not self.feature_generation_llm_service.enabled:
             raise RuntimeError("AI feature generation is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_feature_spec_skill()
         try:
             feature = self.feature_generation_llm_service.generate(
                 payload,
-                skill=self._get_active_feature_spec_skill(),
+                skill=active_skill,
             )
         except Exception as exc:
             self.logger.exception("AI feature generation failed")
             raise RuntimeError("AI feature generation failed. Please retry.") from exc
+        persisted = self.project_feature_repository.create_feature(
+            project_id=str(payload.project_id),
+            source_type=payload.source_type,
+            source_title=payload.source_title,
+            source_summary=payload.source_summary,
+            source_details=payload.source_details,
+            desired_outcome=payload.desired_outcome,
+            constraints=payload.constraints,
+            supporting_context=payload.supporting_context,
+            status=feature.status,
+            generator_type="feature_generator",
+            skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
+            skill_name=active_skill.get("name"),
+            title=feature.title,
+            summary=feature.summary,
+            body=feature.body,
+        )
+        feature = feature.model_copy(update={"feature_id": str(persisted["id"])})
         return FeatureGeneratorResponse(feature=feature)
+
+    def run_story_generator(self, payload: StoryGeneratorRequest) -> StoryGeneratorResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        source_feature = self._ensure_project_feature_exists(str(payload.source_feature_id), str(payload.project_id))
+        if not self.story_generation_llm_service.enabled:
+            raise RuntimeError("AI story generation is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_story_spec_skill()
+        try:
+            stories = self.story_generation_llm_service.generate(
+                payload,
+                ProjectFeatureResponse(**source_feature),
+                skill=active_skill,
+            )
+        except Exception as exc:
+            self.logger.exception("AI story generation failed")
+            raise RuntimeError("AI story generation failed. Please retry.") from exc
+
+        persisted = []
+        for story in stories:
+            row = self.project_story_repository.create_story(
+                project_id=str(payload.project_id),
+                source_type=payload.source_type,
+                source_feature_id=str(payload.source_feature_id),
+                status=story.status,
+                generator_type="story_generator",
+                skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
+                skill_name=active_skill.get("name"),
+                title=story.title,
+                user_story=story.user_story,
+                as_a=story.as_a,
+                i_want=story.i_want,
+                so_that=story.so_that,
+                description=story.description,
+                acceptance_criteria=story.acceptance_criteria,
+                edge_cases=story.edge_cases,
+                dependencies=story.dependencies,
+                priority=story.priority,
+            )
+            persisted.append(story.model_copy(update={"story_id": str(row["id"])}))
+        return StoryGeneratorResponse(stories=persisted)
 
     def generate_prd(self, payload: PRDGenerateRequest) -> PRDGenerateResponse:
         prd = PRDDocument(

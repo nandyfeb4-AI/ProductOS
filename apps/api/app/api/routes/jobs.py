@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, WebSocket
 
 from app.api.deps import get_job_service, get_pipeline_service
-from app.schemas.agents import FeatureGeneratorRequest
+from app.schemas.agents import FeatureGeneratorRequest, StoryGeneratorRequest
 from app.schemas.artifacts import ArtifactGenerateRequest, StorySliceWorkflowRequest
 from app.schemas.jobs import GenerationJob, GenerationJobAcceptedResponse
 from app.schemas.opportunity import OpportunitySynthesizeRequest
@@ -101,6 +101,24 @@ async def start_feature_generation(
         running_stage="running",
         running_message="Generating a PM-ready feature draft from the provided source material.",
         runner=lambda: service.run_feature_generator(payload),
+    )
+    return GenerationJobAcceptedResponse(job=job)
+
+
+@router.post("/story-generation", response_model=GenerationJobAcceptedResponse, status_code=202)
+async def start_story_generation(
+    payload: StoryGeneratorRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+    job_service: JobService = Depends(get_job_service),
+) -> GenerationJobAcceptedResponse:
+    job = job_service.enqueue(
+        job_type="story_generation",
+        input_payload=payload.model_dump(mode="json"),
+        queued_stage="queued",
+        queued_message="Queued for AI story generation.",
+        running_stage="running",
+        running_message="Generating implementation-ready stories from the selected feature.",
+        runner=lambda: service.run_story_generator(payload),
     )
     return GenerationJobAcceptedResponse(job=job)
 

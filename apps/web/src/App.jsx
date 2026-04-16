@@ -14,6 +14,7 @@ import WorkflowList          from "./pages/WorkflowList";
 import Projects                from "./pages/Projects";
 import ProjectDetail           from "./pages/ProjectDetail";
 import FeatureGeneratorAgent   from "./pages/FeatureGeneratorAgent";
+import StoryGeneratorAgent     from "./pages/StoryGeneratorAgent";
 import Skills                  from "./pages/Skills";
 import Placeholder             from "./pages/Placeholder";
 
@@ -36,6 +37,7 @@ const VIEWS = {
   skills:            Skills,
   "project-detail":       ProjectDetail,
   "feature-generator":    FeatureGeneratorAgent,
+  "story-generator":      StoryGeneratorAgent,
   backlog:           PlaceholderBacklog,
   team:              PlaceholderTeam,
   reports:           PlaceholderReports,
@@ -85,7 +87,7 @@ export default function App() {
   }
 
   // Guard: project-scoped views require an active project — redirect to projects if none
-  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator"]);
+  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator"]);
   const resolvedView = (PROJECT_SCOPED_VIEWS.has(activeView) && !activeProject) ? "projects" : activeView;
   const ViewComponent = VIEWS[resolvedView] ?? VIEWS.dashboard;
 

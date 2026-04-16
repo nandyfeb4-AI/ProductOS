@@ -44,27 +44,91 @@ const DEFAULT_FEATURE_SPEC_SKILL = {
   ],
 };
 
-function TagEditor({ label, hint, values, onChange }) {
-  const [draft, setDraft] = useState("");
+const DEFAULT_STORY_SPEC_SKILL = {
+  name: "Default Story Spec Skill",
+  slug: "default-story-spec-skill",
+  skill_type: "story_spec",
+  description: "Default ProductOS skill for writing actionable user stories from a feature spec.",
+  is_active: true,
+  instructions:
+    "Write clear, actionable user stories from the provided feature input. Each story should follow the As a / I want / So that format and include acceptance criteria that are testable and implementation-ready. Keep each story independently deliverable where possible.",
+  required_sections: [
+    "user_story",
+    "acceptance_criteria",
+    "edge_cases",
+    "dependencies",
+  ],
+  quality_bar: [
+    "Follow As a / I want / So that format",
+    "Acceptance criteria must be testable and concrete",
+    "Keep each story independently deliverable where possible",
+    "Surface edge cases that affect implementation",
+    "Avoid duplicating the feature spec — write stories, not specs",
+  ],
+  integration_notes: [
+    "Stories should map to Jira story issue type",
+    "Acceptance criteria should be usable as Jira description content",
+    "Functional requirements from the feature spec drive the story count",
+  ],
+};
+
+const SKILL_TYPE_CONFIG = {
+  feature_spec: {
+    label: "Feature Spec",
+    icon: "auto_awesome",
+    defaultSkill: DEFAULT_FEATURE_SPEC_SKILL,
+    badgeCls: "bg-violet-50 text-violet-600 border-violet-100",
+    ringCls: "ring-violet-500/40",
+    stripeCls: "bg-violet-500",
+    iconBgActiveCls: "bg-violet-500",
+    formBgCls: "from-violet-50/60",
+    cardActiveCls: "border-violet-200 bg-violet-50/60",
+    sectionIconCls: "text-violet-500",
+    saveBtnCls: "from-violet-600 to-violet-700 hover:from-violet-500 hover:to-violet-600 shadow-violet-500/20",
+    inputFocusCls: "focus:border-violet-500 focus:ring-violet-500/10",
+  },
+  story_spec: {
+    label: "Story Spec",
+    icon: "menu_book",
+    defaultSkill: DEFAULT_STORY_SPEC_SKILL,
+    badgeCls: "bg-emerald-50 text-emerald-600 border-emerald-100",
+    ringCls: "ring-emerald-500/40",
+    stripeCls: "bg-emerald-500",
+    iconBgActiveCls: "bg-emerald-500",
+    formBgCls: "from-emerald-50/60",
+    cardActiveCls: "border-emerald-200 bg-emerald-50/60",
+    sectionIconCls: "text-emerald-500",
+    saveBtnCls: "from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-emerald-500/20",
+    inputFocusCls: "focus:border-emerald-500 focus:ring-emerald-500/10",
+  },
+};
+
+function TagEditor({ label, hint, icon, values, onChange }) {
+  const [tagDraft, setTagDraft] = useState("");
 
   function addValue() {
-    const value = draft.trim();
+    const value = tagDraft.trim();
     if (!value) return;
     onChange([...(values ?? []), value]);
-    setDraft("");
+    setTagDraft("");
   }
 
   return (
     <div>
-      <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
-        {label}
-      </label>
+      <div className="flex items-center gap-2 mb-2">
+        {icon && (
+          <span className="material-symbols-outlined text-[14px] text-on-surface-variant/60">{icon}</span>
+        )}
+        <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+          {label}
+        </label>
+      </div>
       {(values ?? []).length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {values.map((value, index) => (
             <span
               key={`${value}-${index}`}
-              className="flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary text-[11px] font-semibold rounded-full border border-primary/20"
+              className="flex items-center gap-1 px-2.5 py-1 bg-violet-50 text-violet-700 text-[11px] font-semibold rounded-full border border-violet-200"
             >
               {value}
               <button
@@ -81,8 +145,8 @@ function TagEditor({ label, hint, values, onChange }) {
       <div className="flex gap-2">
         <input
           type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          value={tagDraft}
+          onChange={(e) => setTagDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -95,7 +159,7 @@ function TagEditor({ label, hint, values, onChange }) {
         <button
           type="button"
           onClick={addValue}
-          className="px-3 py-2 bg-surface border border-outline rounded-lg text-sm font-semibold text-on-surface hover:border-primary hover:text-primary transition"
+          className="px-3 py-2 bg-surface border border-outline rounded-lg text-sm font-semibold text-on-surface hover:border-violet-400 hover:text-violet-600 transition"
         >
           Add
         </button>
@@ -104,20 +168,36 @@ function TagEditor({ label, hint, values, onChange }) {
   );
 }
 
+function FormSection({ icon, title, iconCls, children }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 pb-2 border-b border-outline/60">
+        <span className={`material-symbols-outlined text-[15px] ${iconCls ?? "text-violet-500"}`}>{icon}</span>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">{title}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function Skills() {
-  const [skills, setSkills] = useState([]);
+  const [skills, setSkills]         = useState([]);
   const [selectedId, setSelectedId] = useState(null);
-  const [draft, setDraft] = useState(DEFAULT_FEATURE_SPEC_SKILL);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState(null);
-  const [message, setMessage] = useState(null);
-  const msgTimer              = useRef(null);
+  const [selectedType, setSelectedType] = useState("feature_spec");
+  const [draft, setDraft]           = useState(DEFAULT_FEATURE_SPEC_SKILL);
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState(null);
+  const [message, setMessage]       = useState(null);
+  const msgTimer                    = useRef(null);
 
   const selectedSkill = useMemo(
     () => skills.find((skill) => skill.id === selectedId) ?? null,
     [skills, selectedId]
   );
+
+  // Derive theme config from active draft type
+  const cfg = SKILL_TYPE_CONFIG[draft.skill_type ?? "feature_spec"];
 
   useEffect(() => {
     loadSkills();
@@ -125,6 +205,7 @@ export default function Skills() {
 
   useEffect(() => {
     if (!selectedSkill) return;
+    setSelectedType(selectedSkill.skill_type ?? "feature_spec");
     setDraft({
       name: selectedSkill.name ?? "",
       slug: selectedSkill.slug ?? "",
@@ -142,14 +223,22 @@ export default function Skills() {
     setLoading(true);
     setError(null);
     try {
-      const result = await getSkills("feature_spec", null);
-      const rows = Array.isArray(result) ? result : (result.skills ?? []);
-      setSkills(rows);
-      const preferred = rows.find((skill) => skill.is_active) ?? rows[0] ?? null;
+      const [featureRes, storyRes] = await Promise.allSettled([
+        getSkills("feature_spec", null),
+        getSkills("story_spec", null),
+      ]);
+      const featureRows = featureRes.status === "fulfilled"
+        ? (Array.isArray(featureRes.value) ? featureRes.value : (featureRes.value?.skills ?? []))
+        : [];
+      const storyRows = storyRes.status === "fulfilled"
+        ? (Array.isArray(storyRes.value) ? storyRes.value : (storyRes.value?.skills ?? []))
+        : [];
+      const all = [...featureRows, ...storyRows];
+      setSkills(all);
+      const preferred = all.find((s) => s.is_active) ?? all[0] ?? null;
       setSelectedId(preferred?.id ?? null);
-      if (!preferred) {
-        setDraft(DEFAULT_FEATURE_SPEC_SKILL);
-      }
+      setSelectedType(preferred?.skill_type ?? "feature_spec");
+      if (!preferred) setDraft(DEFAULT_FEATURE_SPEC_SKILL);
     } catch (err) {
       setError(err.message ?? "Failed to load skills.");
     } finally {
@@ -179,12 +268,12 @@ export default function Skills() {
         const created = await createSkill({
           ...draft,
           name: draft.name.trim(),
-          slug: slugify(draft.name || "feature-spec-skill"),
+          slug: slugify(draft.name || `${(draft.skill_type ?? "feature-spec").replace("_", "-")}-skill`),
           description: draft.description.trim(),
           instructions: draft.instructions.trim(),
           is_active: true,
         });
-        setSkills([created]);
+        setSkills((current) => [...current, created]);
         setSelectedId(created.id);
       }
       clearTimeout(msgTimer.current);
@@ -199,12 +288,24 @@ export default function Skills() {
 
   return (
     <div className="px-10 py-10">
-      <div className="mb-8">
-        <h2 className="text-3xl font-headline font-bold tracking-tight text-on-surface mb-2">Skills</h2>
-        <p className="text-sm text-on-surface-variant max-w-3xl">
-          Skills define how ProductOS agents should work. The Feature Generator agent and workshop feature artifact generation
-          both use the active Feature Spec Skill automatically.
-        </p>
+      {/* Page header */}
+      <div className="flex items-start gap-4 mb-8">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center shadow-lg shadow-violet-500/20 shrink-0">
+          <span
+            className="material-symbols-outlined text-white text-[22px]"
+            style={{ fontVariationSettings: "'FILL' 1" }}
+          >
+            psychology
+          </span>
+        </div>
+        <div>
+          <h2 className="text-3xl font-headline font-bold tracking-tight text-on-surface mb-1">Skills</h2>
+          <p className="text-sm text-on-surface-variant max-w-3xl">
+            Skills define how ProductOS agents behave. The Feature Generator uses the active Feature Spec skill,
+            and the Story Generator uses the active Story Spec skill. Configure each skill's instructions, required
+            sections, and quality bar here.
+          </p>
+        </div>
       </div>
 
       {loading ? (
@@ -214,138 +315,250 @@ export default function Skills() {
           <div className="h-64 bg-surface-container rounded-xl" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6">
-          <div className="bg-surface border border-outline rounded-2xl p-4 h-fit shadow-card">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-3">
-              Available Skills
-            </p>
-            <div className="space-y-3">
-              {(skills.length > 0 ? skills : [DEFAULT_FEATURE_SPEC_SKILL]).map((skill, index) => {
-                const isSelected = (skill.id ?? `default-${index}`) === (selectedId ?? `default-${index}`);
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-6 items-start">
+
+          {/* ── Skill list ── */}
+          <div className="bg-surface border border-outline rounded-2xl overflow-hidden shadow-card">
+            <div className="px-4 pt-4 pb-3 border-b border-outline/60">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                Available Skills
+              </p>
+            </div>
+
+            <div className="py-2">
+              {(["feature_spec", "story_spec"] ).map((type) => {
+                const typeCfg = SKILL_TYPE_CONFIG[type];
+                const typeSkills = skills.filter((s) => s.skill_type === type);
+                const itemsToShow = typeSkills.length > 0
+                  ? typeSkills
+                  : [{ ...typeCfg.defaultSkill, _isDefault: true }];
+
                 return (
-                  <button
-                    key={skill.id ?? `default-${index}`}
-                    onClick={() => setSelectedId(skill.id ?? null)}
-                    className={[
-                      "w-full text-left border rounded-xl p-4 transition-all",
-                      isSelected
-                        ? "border-primary bg-primary/5 shadow-sm"
-                        : "border-outline bg-surface hover:border-primary/25",
-                    ].join(" ")}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-headline font-bold text-on-surface">{skill.name}</p>
-                        <p className="text-[11px] text-on-surface-variant mt-1 line-clamp-2">{skill.description}</p>
-                      </div>
-                      {(skill.is_active ?? true) && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border bg-green-50 text-green-600 border-green-100 shrink-0">
-                          Active
-                        </span>
-                      )}
+                  <div key={type}>
+                    {/* Section header */}
+                    <div className="px-4 pt-3 pb-1.5 flex items-center gap-1.5">
+                      <span
+                        className={`material-symbols-outlined text-[12px] ${typeCfg.sectionIconCls}`}
+                        style={{ fontVariationSettings: "'FILL' 1" }}
+                      >
+                        {typeCfg.icon}
+                      </span>
+                      <p className={`text-[9px] font-bold uppercase tracking-widest ${typeCfg.sectionIconCls}`}>
+                        {typeCfg.label}
+                      </p>
                     </div>
-                  </button>
+
+                    <div className="px-3 pb-2 space-y-2">
+                      {itemsToShow.map((skill, index) => {
+                        const isSelected = skill.id
+                          ? skill.id === selectedId
+                          : selectedId === null && selectedType === type;
+                        return (
+                          <button
+                            key={skill.id ?? `default-${type}-${index}`}
+                            onClick={() => {
+                              if (skill.id) {
+                                setSelectedId(skill.id);
+                              } else {
+                                setSelectedId(null);
+                                setSelectedType(type);
+                                setDraft(typeCfg.defaultSkill);
+                              }
+                            }}
+                            className={[
+                              "w-full text-left rounded-xl overflow-hidden transition-all",
+                              isSelected
+                                ? `ring-2 ${typeCfg.ringCls} shadow-sm`
+                                : "hover:-translate-y-px hover:shadow-sm",
+                            ].join(" ")}
+                          >
+                            <div className="flex">
+                              {/* accent stripe */}
+                              <div className={[
+                                "w-1 shrink-0 rounded-l-xl",
+                                isSelected ? typeCfg.stripeCls : "bg-outline/40",
+                              ].join(" ")} />
+
+                              <div className={[
+                                "flex-1 p-3 border border-l-0 rounded-r-xl transition-colors",
+                                isSelected
+                                  ? typeCfg.cardActiveCls
+                                  : "border-outline bg-surface hover:bg-surface-container/30",
+                              ].join(" ")}>
+                                <div className="flex items-start gap-2.5">
+                                  <div className={[
+                                    "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
+                                    isSelected ? typeCfg.iconBgActiveCls : "bg-surface-container",
+                                  ].join(" ")}>
+                                    <span
+                                      className={[
+                                        "material-symbols-outlined text-[16px]",
+                                        isSelected ? "text-white" : "text-on-surface-variant",
+                                      ].join(" ")}
+                                      style={{ fontVariationSettings: "'FILL' 1" }}
+                                    >
+                                      {typeCfg.icon}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-headline font-bold text-on-surface leading-snug">{skill.name}</p>
+                                    <p className="text-[11px] text-on-surface-variant mt-0.5 line-clamp-2 leading-relaxed">{skill.description}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2.5 pl-[42px]">
+                                  {(skill.is_active ?? true) && (
+                                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-100">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                                      Active
+                                    </span>
+                                  )}
+                                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${typeCfg.badgeCls}`}>
+                                    {typeCfg.label}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
           </div>
 
-          <form onSubmit={handleSave} className="bg-surface border border-outline rounded-2xl p-6 shadow-card space-y-5">
-            <div className="flex items-center justify-between gap-4">
+          {/* ── Skill form ── */}
+          <form onSubmit={handleSave} className="bg-surface border border-outline rounded-2xl overflow-hidden shadow-card">
+
+            {/* Form header */}
+            <div className={`px-6 py-4 border-b border-outline/60 bg-gradient-to-r ${cfg.formBgCls} to-transparent flex items-center justify-between gap-4`}>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-0.5">
                   Skill Configuration
                 </p>
                 <p className="text-sm text-on-surface-variant">
-                  Changes here affect the Feature Generator agent and workflow feature artifact generation.
+                  {draft.skill_type === "story_spec"
+                    ? "Changes here affect the Story Generator agent."
+                    : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
                 </p>
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border bg-violet-50 text-violet-600 border-violet-100">
-                Feature Spec
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shrink-0 ${cfg.badgeCls}`}>
+                {cfg.label}
               </span>
             </div>
 
-            {error && (
-              <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-100 rounded-xl">
-                <span className="material-symbols-outlined text-error text-[16px]">error</span>
-                <p className="text-sm text-red-700">{error}</p>
+            <div className="p-6 space-y-6">
+
+              {error && (
+                <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-100 rounded-xl">
+                  <span className="material-symbols-outlined text-error text-[16px]">error</span>
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+
+              {message && (
+                <div className="flex items-center gap-2 p-4 bg-green-50 border border-green-100 rounded-xl">
+                  <span className="material-symbols-outlined text-green-600 text-[16px]">check_circle</span>
+                  <p className="text-sm text-green-700">{message}</p>
+                </div>
+              )}
+
+              {/* Identity section */}
+              <FormSection icon="badge" title="Identity" iconCls={cfg.sectionIconCls}>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
+                    Skill Name
+                  </label>
+                  <input
+                    type="text"
+                    value={draft.name}
+                    onChange={(e) => setDraft((current) => ({ ...current, name: e.target.value }))}
+                    className={`w-full px-3 py-2 text-sm font-semibold text-on-surface bg-surface-container rounded-lg border border-outline focus:outline-none focus:ring-2 ${cfg.inputFocusCls} transition`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
+                    Description
+                  </label>
+                  <textarea
+                    value={draft.description}
+                    onChange={(e) => setDraft((current) => ({ ...current, description: e.target.value }))}
+                    rows={2}
+                    className={`w-full px-3 py-2 text-sm text-on-surface bg-surface-container rounded-lg border border-outline focus:outline-none focus:ring-2 ${cfg.inputFocusCls} resize-none transition`}
+                  />
+                </div>
+              </FormSection>
+
+              {/* Instructions section */}
+              <FormSection icon="terminal" title="Instructions" iconCls={cfg.sectionIconCls}>
+                <div className="relative">
+                  <textarea
+                    value={draft.instructions}
+                    onChange={(e) => setDraft((current) => ({ ...current, instructions: e.target.value }))}
+                    rows={9}
+                    className={`w-full px-3.5 py-3 text-sm font-mono text-on-surface bg-slate-950/[0.03] rounded-xl border border-outline focus:outline-none focus:ring-2 ${cfg.inputFocusCls} resize-none transition leading-relaxed`}
+                    style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace" }}
+                    placeholder="Write your agent instructions here…"
+                  />
+                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 bg-surface border border-outline rounded-md pointer-events-none">
+                    <span className="material-symbols-outlined text-[11px] text-on-surface-variant/60">smart_toy</span>
+                    <span className="text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-widest">Prompt</span>
+                  </div>
+                </div>
+              </FormSection>
+
+              {/* Structure section */}
+              <FormSection icon="list_alt" title="Output Structure" iconCls={cfg.sectionIconCls}>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                  <TagEditor
+                    label="Required Sections"
+                    hint="Add required body sections"
+                    icon="format_list_bulleted"
+                    values={draft.required_sections}
+                    onChange={(value) => setDraft((current) => ({ ...current, required_sections: value }))}
+                  />
+                  <TagEditor
+                    label="Quality Bar"
+                    hint="Add quality expectations"
+                    icon="verified"
+                    values={draft.quality_bar}
+                    onChange={(value) => setDraft((current) => ({ ...current, quality_bar: value }))}
+                  />
+                </div>
+              </FormSection>
+
+              {/* Integration section */}
+              <FormSection icon="cable" title="Integration Notes" iconCls={cfg.sectionIconCls}>
+                <TagEditor
+                  label="Downstream Jira / Export Notes"
+                  hint="Add downstream Jira/export notes"
+                  icon="output"
+                  values={draft.integration_notes}
+                  onChange={(value) => setDraft((current) => ({ ...current, integration_notes: value }))}
+                />
+              </FormSection>
+
+              {/* Save */}
+              <div className="pt-1">
+                <button
+                  type="submit"
+                  disabled={saving || !draft.name.trim() || !draft.instructions.trim()}
+                  className={`flex items-center gap-2 px-5 py-3 bg-gradient-to-r ${cfg.saveBtnCls} text-white text-sm font-bold rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {saving ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-[16px]">save</span>
+                      Save Skill
+                    </>
+                  )}
+                </button>
               </div>
-            )}
-
-            {message && (
-              <div className="flex items-center gap-2 p-4 bg-green-50 border border-green-100 rounded-xl">
-                <span className="material-symbols-outlined text-green-600 text-[16px]">check_circle</span>
-                <p className="text-sm text-green-700">{message}</p>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
-                Skill Name
-              </label>
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(e) => setDraft((current) => ({ ...current, name: e.target.value }))}
-                className="w-full px-3 py-2 text-sm font-semibold text-on-surface bg-surface-container rounded-lg border border-outline focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
-                Description
-              </label>
-              <textarea
-                value={draft.description}
-                onChange={(e) => setDraft((current) => ({ ...current, description: e.target.value }))}
-                rows={2}
-                className="w-full px-3 py-2 text-sm text-on-surface bg-surface-container rounded-lg border border-outline focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 resize-none transition"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
-                Instructions
-              </label>
-              <textarea
-                value={draft.instructions}
-                onChange={(e) => setDraft((current) => ({ ...current, instructions: e.target.value }))}
-                rows={9}
-                className="w-full px-3 py-2 text-sm text-on-surface bg-surface-container rounded-lg border border-outline focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 resize-none transition"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-              <TagEditor
-                label="Required Sections"
-                hint="Add required body sections"
-                values={draft.required_sections}
-                onChange={(value) => setDraft((current) => ({ ...current, required_sections: value }))}
-              />
-              <TagEditor
-                label="Quality Bar"
-                hint="Add quality expectations"
-                values={draft.quality_bar}
-                onChange={(value) => setDraft((current) => ({ ...current, quality_bar: value }))}
-              />
-            </div>
-
-            <TagEditor
-              label="Integration Notes"
-              hint="Add downstream Jira/export notes"
-              values={draft.integration_notes}
-              onChange={(value) => setDraft((current) => ({ ...current, integration_notes: value }))}
-            />
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={saving || !draft.name.trim() || !draft.instructions.trim()}
-                className="flex items-center gap-2 px-5 py-3 bg-primary text-white text-sm font-bold rounded-lg hover:bg-primary-dim transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="material-symbols-outlined text-[16px]">save</span>
-                {saving ? "Saving…" : "Save Skill"}
-              </button>
             </div>
           </form>
         </div>

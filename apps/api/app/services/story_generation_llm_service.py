@@ -7,12 +7,18 @@ import certifi
 import httpx
 
 from app.core.config import settings
-from app.schemas.agents import FeatureDraft, FeatureGeneratorRequest
-from app.services.feature_spec_skill import build_feature_spec_instructions, feature_spec_body_schema, normalize_feature_spec_body
+from app.schemas.agents import StoryGeneratorRequest
+from app.schemas.artifacts import StoryDraft
+from app.schemas.project_features import ProjectFeatureResponse
+from app.services.story_spec_skill import (
+    build_story_spec_instructions,
+    normalize_story_body,
+    story_spec_response_schema,
+)
 
 
-class FeatureGenerationLLMService:
-    """LLM-backed generation of a single reusable feature draft."""
+class StoryGenerationLLMService:
+    """LLM-backed generation of implementation-ready stories from a persisted feature."""
 
     def __init__(self) -> None:
         self.api_key = settings.openai_api_key
@@ -23,45 +29,52 @@ class FeatureGenerationLLMService:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    def generate(self, payload: FeatureGeneratorRequest, skill: dict[str, Any] | None = None) -> FeatureDraft:
+    def generate(
+        self,
+        payload: StoryGeneratorRequest,
+        feature: ProjectFeatureResponse,
+        skill: dict[str, Any] | None = None,
+    ) -> list[StoryDraft]:
         if not self.enabled:
             raise RuntimeError("OpenAI API key is not configured.")
 
         input_payload = {
             "project_id": str(payload.project_id),
             "source_type": payload.source_type,
-            "source_title": payload.source_title,
-            "source_summary": payload.source_summary,
-            "source_details": payload.source_details,
-            "desired_outcome": payload.desired_outcome,
+            "source_feature_id": str(payload.source_feature_id),
+            "story_count_hint": payload.story_count_hint,
             "constraints": payload.constraints,
             "supporting_context": payload.supporting_context,
+            "feature": {
+                "id": str(feature.id),
+                "title": feature.title,
+                "summary": feature.summary,
+                "body": feature.body,
+            },
         }
+
+        count_instruction = (
+            f"Generate approximately {payload.story_count_hint} stories. "
+            if payload.story_count_hint and payload.story_count_hint > 0
+            else "Generate 3 to 5 meaningful stories for a normal feature. "
+        )
 
         request_body = {
             "model": self.model,
-            "instructions": build_feature_spec_instructions(skill),
+            "instructions": build_story_spec_instructions(skill),
             "input": (
-                "Create one feature draft from the following input.\n\n"
+                "Create implementation-ready stories from the following persisted feature.\n\n"
+                f"{count_instruction}"
                 f"Source material: {json.dumps(input_payload, ensure_ascii=True)}"
             ),
-            "max_output_tokens": 1800,
+            "max_output_tokens": 3200,
             "reasoning": {"effort": "medium"},
             "text": {
                 "format": {
                     "type": "json_schema",
-                    "name": "feature_draft",
+                    "name": "story_generation_result",
                     "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "title": {"type": "string"},
-                            "summary": {"type": "string"},
-                            "body": feature_spec_body_schema(),
-                        },
-                        "required": ["title", "summary", "body"],
-                    },
+                    "schema": story_spec_response_schema(),
                 }
             },
         }
@@ -84,29 +97,18 @@ class FeatureGenerationLLMService:
                     "Do not add markdown. Do not explain anything. Return only JSON."
                 ),
                 "input": (
-                    "Repair this malformed feature generation JSON into valid JSON with top-level keys "
-                    "`title`, `summary`, and `body`. The `body` must contain: problem_statement, "
-                    "user_segment, proposed_solution, user_value, business_value, "
-                    "functional_requirements, non_functional_requirements, dependencies, "
-                    "success_metrics, priority.\n\n"
+                    "Repair this malformed story generation JSON into valid JSON with top-level key `stories` "
+                    "and story objects containing: title, user_story, as_a, i_want, so_that, description, "
+                    "acceptance_criteria, edge_cases, dependencies, priority.\n\n"
                     f"Malformed JSON:\n{raw_output}"
                 ),
-                "max_output_tokens": 2200,
+                "max_output_tokens": 3200,
                 "text": {
                     "format": {
                         "type": "json_schema",
-                        "name": "feature_draft",
+                        "name": "story_generation_result",
                         "strict": True,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "properties": {
-                                "title": {"type": "string"},
-                                "summary": {"type": "string"},
-                                "body": feature_spec_body_schema(),
-                            },
-                            "required": ["title", "summary", "body"],
-                        },
+                        "schema": story_spec_response_schema(),
                     }
                 },
                 "reasoning": {"effort": "low"},
@@ -118,10 +120,11 @@ class FeatureGenerationLLMService:
                     raise
                 repair_response = self._post_request(repair_body, verify=False)
             parsed = self._parse_json(self._extract_output_text(repair_response))
-        return self._coerce_feature(parsed)
+
+        return self._coerce_stories(parsed, str(feature.id))
 
     def _post_request(self, request_body: dict[str, Any], verify: str | bool) -> dict[str, Any]:
-        with httpx.Client(timeout=60.0, verify=verify) as client:
+        with httpx.Client(timeout=90.0, verify=verify) as client:
             response = client.post(
                 f"{self.base_url}/responses",
                 headers={
@@ -136,7 +139,6 @@ class FeatureGenerationLLMService:
     def _extract_output_text(self, body: dict[str, Any]) -> str:
         if body.get("output_text"):
             return str(body["output_text"])
-
         parts: list[str] = []
         for item in body.get("output", []):
             if item.get("type") != "message":
@@ -164,17 +166,25 @@ class FeatureGenerationLLMService:
                 return json.loads(text[start : end + 1])
             raise
 
-    def _coerce_feature(self, parsed: dict[str, Any]) -> FeatureDraft:
-        body = parsed.get("body", {})
-        if not isinstance(body, dict):
-            body = {}
-
-        normalize_feature_spec_body(body)
-
-        return FeatureDraft(
-            feature_id="feature_agent_1",
-            status="draft",
-            title=str(parsed.get("title", "Untitled feature")).strip() or "Untitled feature",
-            summary=str(parsed.get("summary", "")).strip(),
-            body=body,
-        )
+    def _coerce_stories(self, parsed: dict[str, Any], source_feature_id: str) -> list[StoryDraft]:
+        stories: list[StoryDraft] = []
+        for index, item in enumerate(parsed.get("stories", []), start=1):
+            normalized = normalize_story_body(item if isinstance(item, dict) else {})
+            stories.append(
+                StoryDraft(
+                    story_id=f"story_generated_{index}",
+                    derived_from_artifact_id=source_feature_id,
+                    status="draft",
+                    title=normalized["title"],
+                    user_story=normalized["user_story"],
+                    as_a=normalized["as_a"],
+                    i_want=normalized["i_want"],
+                    so_that=normalized["so_that"],
+                    description=normalized["description"],
+                    acceptance_criteria=normalized["acceptance_criteria"],
+                    edge_cases=normalized["edge_cases"],
+                    dependencies=normalized["dependencies"],
+                    priority=normalized["priority"],
+                )
+            )
+        return stories

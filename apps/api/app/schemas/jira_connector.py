@@ -4,6 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.schemas.agents import FeatureDraft
 from app.schemas.artifacts import GeneratedArtifact, StoryDraft
 
 
@@ -48,3 +49,14 @@ class JiraExportIssue(BaseModel):
 
 class JiraExportResponse(BaseModel):
     issues: list[JiraExportIssue] = []
+
+
+class JiraFeatureExportRequest(BaseModel):
+    project_key: str
+    feature: FeatureDraft
+
+
+class JiraFeatureExportResponse(BaseModel):
+    issue_key: str
+    issue_url: str
+    issue_type: str

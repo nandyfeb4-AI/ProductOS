@@ -47,3 +47,7 @@ export const getJiraProjects = () =>
 // Push approved stories into the selected Jira project
 export const exportToJira = (body) =>
   postJson("/api/jira/export", body);
+
+// Push a single generated feature into the selected Jira project
+export const exportFeatureToJira = (body) =>
+  postJson("/api/jira/export-feature", body);

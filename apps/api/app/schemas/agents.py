@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.artifacts import StoryDraft
+
 
 class FeatureDraft(BaseModel):
     feature_id: str
@@ -28,3 +30,15 @@ class FeatureGeneratorRequest(BaseModel):
 class FeatureGeneratorResponse(BaseModel):
     feature: FeatureDraft
 
+
+class StoryGeneratorRequest(BaseModel):
+    project_id: UUID
+    source_type: Literal["feature"] = "feature"
+    source_feature_id: UUID
+    story_count_hint: int | None = None
+    constraints: list[str] = Field(default_factory=list)
+    supporting_context: list[str] = Field(default_factory=list)
+
+
+class StoryGeneratorResponse(BaseModel):
+    stories: list[StoryDraft] = Field(default_factory=list)

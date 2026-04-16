@@ -4,6 +4,109 @@ This file is the active source of truth for Claude Code UI work and Codex backen
 
 If anything in older chat history conflicts with this file, this file wins.
 
+## Active Generated Features Context
+
+Generated features are now first-class persisted project assets.
+
+Important distinction:
+
+- a feature generator page result is no longer just page/session state
+- each successful `Feature Generator` run now saves a row into the project feature store
+- Jira export for generated features updates that same persisted row with Jira sync metadata
+
+### Backend Now Available
+
+- `GET /api/project-features?project_id={project_id}`
+- `GET /api/project-features/{feature_id}`
+- `PATCH /api/project-features/{feature_id}`
+- `POST /api/jira/export-feature`
+
+### Current Behavior
+
+- `POST /api/jobs/feature-generation` still generates the feature asynchronously
+- when the job completes, the feature is persisted in DB automatically
+- returned `feature.feature_id` is now the persisted project feature UUID
+- `Project.feature_count` and dashboard `features` counts now include persisted project features
+- pushing a generated feature to Jira updates:
+  - `status = exported`
+  - `jira_issue_key`
+  - `jira_issue_url`
+  - `jira_issue_type`
+
+### What Claude Should Do Next
+
+Build the UI for persisted generated features under project context instead of treating the Feature Generator result as a transient one-off page.
+
+Recommended first pass:
+
+- add a real `Features` surface inside project context
+- show persisted features from `GET /api/project-features?project_id=...`
+- each feature card/list row should show:
+  - title
+  - summary
+  - status
+  - source type
+  - skill name
+  - updated time
+  - Jira issue key if exported
+- keep the existing Feature Generator page for creation
+- after generation, users should be able to return to a project-level feature list/history and reopen a generated feature
+- do not rely on `sessionStorage` as the main history mechanism anymore
+- frontend helper is already available at:
+  - `apps/web/src/api/projectFeatures.js`
+
+## Active Story Generator Context
+
+The next reusable agent backend is now in place:
+
+- `Story Generator`
+
+And the next reusable cross-project skill is now in place:
+
+- `Story Spec Skill`
+
+### Backend Now Available
+
+- `POST /api/agents/story-generator`
+- `POST /api/jobs/story-generation`
+- `GET /api/project-stories?project_id={project_id}`
+- `GET /api/project-stories?project_id={project_id}&source_feature_id={feature_id}`
+- `GET /api/project-stories/{story_id}`
+- `PATCH /api/project-stories/{story_id}`
+
+### Current MVP Model
+
+- `Story Generator` takes a persisted project feature as input
+- request shape is:
+  - `project_id`
+  - `source_type = feature`
+  - `source_feature_id`
+  - optional `story_count_hint`
+  - optional `constraints`
+  - optional `supporting_context`
+- it automatically uses the active global `story_spec` skill
+- each successful run persists stories into the project story store
+
+### What Claude Should Do Next
+
+Build the first project-level Story Generator UI using the persisted feature list as the source.
+
+Recommended first pass:
+
+- add `Story Generator` to the project `Agents` tab
+- allow the user to choose a persisted feature as the source input
+- show the active `Story Spec Skill` in project/agent context just like Feature Generator does for the Feature Spec Skill
+- after generation, present the generated stories clearly and let the user return to project context
+- add a project-level stories surface later if needed, but first make the generator flow usable from project features
+- frontend helper is already available at:
+  - `apps/web/src/api/projectStories.js`
+
+Important:
+
+- keep the story shape aligned with the existing workflow story structure
+- do not introduce a second story format
+- `Story Refiner` and `Story Slicer` should be able to build on these persisted project stories later
+
 ## Active Skill + Agent Context
 
 The first reusable agent is now shipped:

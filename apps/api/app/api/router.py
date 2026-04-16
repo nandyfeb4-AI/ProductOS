@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import agents, artifacts, connectors, dashboard, feature, initiative, jira, jobs, opportunity, prd, projects, skills, solution_shaping, stories, story, workflows, workshop, workshops
+from app.api.routes import agents, artifacts, connectors, dashboard, feature, initiative, jira, jobs, opportunity, prd, project_features, project_stories, projects, skills, solution_shaping, stories, story, workflows, workshop, workshops
 
 api_router = APIRouter()
 api_router.include_router(workshop.router, prefix="/workshop", tags=["workshop"])
@@ -12,6 +12,8 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(jira.router, prefix="/jira", tags=["jira"])
 api_router.include_router(connectors.router, prefix="/connectors", tags=["connectors"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
+api_router.include_router(project_features.router, prefix="/project-features", tags=["project-features"])
+api_router.include_router(project_stories.router, prefix="/project-stories", tags=["project-stories"])
 api_router.include_router(skills.router, prefix="/skills", tags=["skills"])
 api_router.include_router(workshops.router, prefix="/workshops", tags=["workshops"])
 api_router.include_router(workflows.router, prefix="/workflows", tags=["workflows"])

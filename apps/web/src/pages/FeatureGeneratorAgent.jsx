@@ -2,6 +2,15 @@ import { useState, useRef, useEffect } from "react";
 import { openJobSocket } from "../api/jobs";
 import { startFeatureGeneratorJob } from "../api/agents";
 import { getSkills } from "../api/skills";
+import { getProjectFeature } from "../api/projectFeatures";
+import {
+  exportFeatureToJira,
+  getJiraAuthorization,
+  getJiraProjects,
+  getJiraStatus,
+  readJiraConnectionCache,
+  writeJiraConnectionCache,
+} from "../api/jira";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const SOURCE_TYPES = [
@@ -15,6 +24,10 @@ const PRIORITY_CONFIG = {
   medium: { label: "Medium", badge: "bg-amber-50 text-amber-600 border-amber-100"  },
   low:    { label: "Low",    badge: "bg-slate-100 text-slate-500 border-slate-200" },
 };
+
+const FEATURE_RESULT_CACHE_KEY   = "feature_generator_result_v1";
+const FEATURE_RESULT_RESTORE_KEY = "feature_generator_restore_pending";
+const FEATURE_OPEN_ID_KEY        = "feature_generator_open_id";
 
 // ─── Tag input ────────────────────────────────────────────────────────────────
 function TagInput({ label, hint, tags, onAdd, onRemove }) {
@@ -66,14 +79,23 @@ function TagInput({ label, hint, tags, onAdd, onRemove }) {
 }
 
 // ─── Result section card ──────────────────────────────────────────────────────
-function ResultSection({ icon, title, children }) {
+function ResultSection({ icon, title, accent = "blue", children }) {
+  const ACCENTS = {
+    blue:   { icon: "text-blue-500",   bg: "bg-blue-50",   border: "border-blue-100"   },
+    violet: { icon: "text-violet-500", bg: "bg-violet-50", border: "border-violet-100" },
+    green:  { icon: "text-green-600",  bg: "bg-green-50",  border: "border-green-100"  },
+    amber:  { icon: "text-amber-500",  bg: "bg-amber-50",  border: "border-amber-100"  },
+    rose:   { icon: "text-rose-500",   bg: "bg-rose-50",   border: "border-rose-100"   },
+    slate:  { icon: "text-slate-500",  bg: "bg-slate-100", border: "border-slate-200"  },
+  };
+  const a = ACCENTS[accent] ?? ACCENTS.blue;
   return (
-    <div className="bg-surface border border-outline rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="material-symbols-outlined text-[15px] text-primary">{icon}</span>
+    <div className="bg-surface border border-outline rounded-2xl overflow-hidden shadow-sm">
+      <div className={`flex items-center gap-2.5 px-5 py-3 ${a.bg} border-b ${a.border}`}>
+        <span className={`material-symbols-outlined text-[15px] ${a.icon}`} style={{ fontVariationSettings: "'FILL' 1" }}>{icon}</span>
         <h4 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">{title}</h4>
       </div>
-      {children}
+      <div className="p-5">{children}</div>
     </div>
   );
 }
@@ -93,9 +115,38 @@ export default function FeatureGeneratorAgent({ project, onNavigate }) {
   const [feature, setFeature]               = useState(null);
   const [error, setError]                   = useState(null);
   const [featureSkill, setFeatureSkill]     = useState(null);
+  const [jiraState, setJiraState]           = useState("idle");
+  const [jiraInfo, setJiraInfo]             = useState(null);
+  const [jiraProjects, setJiraProjects]     = useState([]);
+  const [selectedProject, setSelectedProject] = useState("");
+  const [jiraError, setJiraError]           = useState(null);
+  const [jiraResult, setJiraResult]         = useState(null);
+  const [pushingToJira, setPushingToJira]   = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => () => wsRef.current?.close(), []);
+
+  useEffect(() => {
+    try {
+      const shouldRestore = sessionStorage.getItem(FEATURE_RESULT_RESTORE_KEY) === "true";
+      if (!shouldRestore) return;
+      const cached = JSON.parse(sessionStorage.getItem(FEATURE_RESULT_CACHE_KEY) ?? "null");
+      if (cached?.feature) {
+        setFeature(cached.feature);
+        setPhase("result");
+        setJiraResult(cached.jiraResult ?? null);
+      }
+    } catch {
+      // Ignore restore failures.
+    } finally {
+      try {
+        sessionStorage.removeItem(FEATURE_RESULT_RESTORE_KEY);
+      } catch {
+        // Ignore cleanup failures.
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     getSkills("feature_spec", true)
@@ -109,6 +160,99 @@ export default function FeatureGeneratorAgent({ project, onNavigate }) {
       });
     return () => { cancelled = true; };
   }, []);
+
+  // Load a persisted feature by ID when navigated from the Features tab.
+  // Must NOT go through applyResult — that always writes jiraResult: null.
+  // Instead, restore Jira sync state directly from the persisted feature fields.
+  useEffect(() => {
+    let cancelled = false;
+    let openId;
+    try { openId = sessionStorage.getItem(FEATURE_OPEN_ID_KEY); } catch {}
+    if (!openId) return;
+    try { sessionStorage.removeItem(FEATURE_OPEN_ID_KEY); } catch {}
+    setPhase("running");
+    setJobMessage("Loading feature…");
+    getProjectFeature(openId)
+      .then((f) => {
+        if (cancelled) return;
+        const nextFeature  = f?.feature ?? f;
+        const restoredJira = (nextFeature.status === "exported" && nextFeature.jira_issue_key)
+          ? { issue_key: nextFeature.jira_issue_key, issue_url: nextFeature.jira_issue_url, issue_type: nextFeature.jira_issue_type }
+          : null;
+        setFeature(nextFeature);
+        setJiraResult(restoredJira);
+        try {
+          sessionStorage.setItem(FEATURE_RESULT_CACHE_KEY, JSON.stringify({ feature: nextFeature, jiraResult: restoredJira }));
+        } catch {}
+        setPhase("result");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("Could not load this feature. Please try again.");
+          setPhase("form");
+        }
+      });
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (phase !== "result" || !feature) return;
+
+    const cached = readJiraConnectionCache();
+    if (cached?.connected) {
+      setJiraState("connected");
+      setJiraInfo(cached.jiraInfo ?? null);
+      setJiraProjects(Array.isArray(cached.projects) ? cached.projects : []);
+      if (cached.selectedProject) setSelectedProject(cached.selectedProject);
+    } else {
+      setJiraState("checking");
+    }
+
+    const callbackDone = localStorage.getItem("jira_oauth_connected") === "true";
+    if (callbackDone || !cached?.connected || !(cached?.projects?.length > 0)) {
+      setJiraState("checking");
+      getJiraStatus()
+        .then((result) => {
+          if (!result.connected) {
+            setJiraState("disconnected");
+            return null;
+          }
+          setJiraInfo(result);
+          setJiraState("connected");
+          writeJiraConnectionCache({
+            connected: true,
+            jiraInfo: result,
+            projects: cached?.projects ?? [],
+            selectedProject: cached?.selectedProject ?? "",
+          });
+          setJiraState("loading_projects");
+          return getJiraProjects();
+        })
+        .then((projectResult) => {
+          if (!projectResult) return;
+          const rows = projectResult.projects ?? [];
+          const nextSelected = rows.length === 1
+            ? rows[0].key
+            : (cached?.selectedProject && rows.some((p) => p.key === cached.selectedProject) ? cached.selectedProject : "");
+          setJiraProjects(rows);
+          if (nextSelected) setSelectedProject(nextSelected);
+          setJiraState("connected");
+          writeJiraConnectionCache({
+            connected: true,
+            jiraInfo: cached?.jiraInfo ?? jiraInfo,
+            projects: rows,
+            selectedProject: nextSelected,
+          });
+        })
+        .catch((err) => {
+          setJiraError(err.message);
+          setJiraState("disconnected");
+        })
+        .finally(() => {
+          if (callbackDone) localStorage.removeItem("jira_oauth_connected");
+        });
+    }
+  }, [phase, feature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function connectSocket(id) {
     wsRef.current?.close();
@@ -138,7 +282,13 @@ export default function FeatureGeneratorAgent({ project, onNavigate }) {
   }
 
   function applyResult(payload) {
-    setFeature(payload?.feature ?? payload);
+    const nextFeature = payload?.feature ?? payload;
+    setFeature(nextFeature);
+    try {
+      sessionStorage.setItem(FEATURE_RESULT_CACHE_KEY, JSON.stringify({ feature: nextFeature, jiraResult: null }));
+    } catch {
+      // Ignore cache write failures.
+    }
     setPhase("result");
   }
 
@@ -176,6 +326,58 @@ export default function FeatureGeneratorAgent({ project, onNavigate }) {
     setFeature(null);
     setError(null);
     setJobMessage(null);
+    setJiraError(null);
+    setJiraResult(null);
+    setSelectedProject("");
+    try {
+      sessionStorage.removeItem(FEATURE_RESULT_CACHE_KEY);
+      sessionStorage.removeItem(FEATURE_RESULT_RESTORE_KEY);
+      sessionStorage.removeItem(FEATURE_OPEN_ID_KEY);
+    } catch {
+      // Ignore cache clear failures.
+    }
+  }
+
+  async function handleConnectJira() {
+    setJiraError(null);
+    setJiraState("connecting");
+    try {
+      localStorage.setItem("oauth_jira_origin", "feature-generator");
+      sessionStorage.setItem(FEATURE_RESULT_RESTORE_KEY, "true");
+      const result = await getJiraAuthorization();
+      window.location.href = result.authorization_url;
+    } catch (err) {
+      setJiraError(err.message);
+      setJiraState("disconnected");
+    }
+  }
+
+  async function handlePushFeatureToJira() {
+    if (!feature || !selectedProject) return;
+    setPushingToJira(true);
+    setJiraError(null);
+    try {
+      const result = await exportFeatureToJira({
+        project_key: selectedProject,
+        feature,
+      });
+      setJiraResult(result);
+      writeJiraConnectionCache({
+        connected: true,
+        jiraInfo,
+        projects: jiraProjects,
+        selectedProject,
+      });
+      try {
+        sessionStorage.setItem(FEATURE_RESULT_CACHE_KEY, JSON.stringify({ feature, jiraResult: result }));
+      } catch {
+        // Ignore cache write failures.
+      }
+    } catch (err) {
+      setJiraError(err.message);
+    } finally {
+      setPushingToJira(false);
+    }
   }
 
   // ── Shared page header ────────────────────────────────────────────────────
@@ -215,115 +417,322 @@ export default function FeatureGeneratorAgent({ project, onNavigate }) {
     const priCfg = PRIORITY_CONFIG[body.priority] ?? PRIORITY_CONFIG.medium;
 
     return (
-      <div className="px-10 py-10 max-w-4xl">
-        <PageHeader subtitle={feature.title || "Generated Feature"} />
+      <div className="px-10 py-10">
+        {/* Back nav */}
+        <button
+          onClick={() => onNavigate?.("project-detail", project)}
+          className="flex items-center gap-1 text-[12px] font-semibold text-on-surface-variant hover:text-primary transition-colors mb-6"
+        >
+          <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+          Back to Project
+        </button>
 
-        {/* Summary bar */}
-        <div className="flex items-center justify-between gap-4 mb-8 p-5 bg-surface border border-outline rounded-xl shadow-card">
-          <div className="flex-1 min-w-0">
-            {feature.summary && (
-              <p className="text-sm text-on-surface-variant leading-relaxed">{feature.summary}</p>
-            )}
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${priCfg.badge}`}>
-              {priCfg.label} Priority
-            </span>
+        <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] gap-6 items-start">
+
+          {/* ── Left panel — sticky meta ─────────────────────────────── */}
+          <div className="xl:sticky xl:top-8 space-y-4">
+
+            {/* Hero card */}
+            <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-2xl p-6 shadow-lg shadow-violet-500/20">
+              <div className="flex items-center gap-2 mb-4">
+                <span
+                  className="material-symbols-outlined text-[18px] text-violet-200"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  auto_awesome
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-violet-200">
+                  Feature Generator
+                </span>
+              </div>
+              <h2 className="text-xl font-headline font-bold text-white leading-snug mb-3">
+                {feature.title || "Generated Feature"}
+              </h2>
+              {feature.summary && (
+                <p className="text-[13px] text-violet-100/80 leading-relaxed">{feature.summary}</p>
+              )}
+            </div>
+
+            {/* Meta card */}
+            <div className="bg-surface border border-outline rounded-2xl p-5 shadow-card space-y-4">
+              {/* Priority */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[14px] text-on-surface-variant">flag</span>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant">Priority</span>
+                </div>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${priCfg.badge}`}>
+                  {priCfg.label}
+                </span>
+              </div>
+
+              {/* User segment */}
+              {body.user_segment && (
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="material-symbols-outlined text-[14px] text-on-surface-variant">group</span>
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant">User Segment</span>
+                  </div>
+                  <p className="text-sm text-on-surface leading-relaxed">{body.user_segment}</p>
+                </div>
+              )}
+
+              {/* Project */}
+              {project && (
+                <>
+                  <div className="border-t border-outline/60" />
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[14px] text-on-surface-variant">inventory_2</span>
+                    <span className="text-[11px] text-on-surface-variant">From</span>
+                    <span className="text-[11px] font-bold text-on-surface">{project.name}</span>
+                  </div>
+                </>
+              )}
+
+              {/* Skill */}
+              {featureSkill && (
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[14px] text-violet-500">psychology</span>
+                  <span className="text-[11px] text-on-surface-variant">Skill</span>
+                  <span className="text-[11px] font-bold text-on-surface truncate">{featureSkill.name}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Run again */}
             <button
               onClick={handleReset}
-              className="flex items-center gap-1.5 px-4 py-2 bg-surface border border-outline text-on-surface text-sm font-bold rounded-lg hover:border-primary hover:text-primary transition-all"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-surface border border-outline text-on-surface text-sm font-bold rounded-xl hover:border-primary hover:text-primary transition-all shadow-sm"
             >
-              <span className="material-symbols-outlined text-[15px]">refresh</span>
+              <span className="material-symbols-outlined text-[16px]">refresh</span>
               Run Again
             </button>
-          </div>
-        </div>
 
-        <div className="space-y-4">
+            {/* Jira export card */}
+            <div className="bg-surface border border-outline rounded-2xl overflow-hidden shadow-card">
+              {/* Header strip */}
+              <div className="flex items-center gap-3 px-5 py-3.5 bg-[#0052CC]/5 border-b border-[#0052CC]/10">
+                <div className="w-7 h-7 rounded-md bg-[#0052CC] flex items-center justify-center shrink-0">
+                  {/* Jira-style "J" mark */}
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.004-1.005zm5.723-5.756H5.757a5.215 5.215 0 0 0 5.214 5.214h2.132v2.058a5.218 5.218 0 0 0 5.215 5.214V6.762a1.005 1.005 0 0 0-1.024-1.005zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.132v2.057A5.215 5.215 0 0 0 24.018 12.49V1.005A1.005 1.005 0 0 0 23.013 0z"/>
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-[#0052CC]">Export to Jira</p>
+                  <p className="text-[10px] text-on-surface-variant">Push as a feature issue</p>
+                </div>
+              </div>
 
-          {/* Core three */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <ResultSection icon="report_problem" title="Problem Statement">
-              <p className="text-sm text-on-surface leading-relaxed">{body.problem_statement}</p>
-            </ResultSection>
-            <ResultSection icon="person" title="User Segment">
-              <p className="text-sm text-on-surface leading-relaxed">{body.user_segment}</p>
-            </ResultSection>
-            <ResultSection icon="lightbulb" title="Proposed Solution">
-              <p className="text-sm text-on-surface leading-relaxed">{body.proposed_solution}</p>
-            </ResultSection>
-          </div>
+              <div className="p-5 space-y-4">
 
-          {/* Value */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ResultSection icon="favorite" title="User Value">
-              <p className="text-sm text-on-surface leading-relaxed">{body.user_value}</p>
-            </ResultSection>
-            <ResultSection icon="trending_up" title="Business Value">
-              <p className="text-sm text-on-surface leading-relaxed">{body.business_value}</p>
-            </ResultSection>
-          </div>
+                {/* Error */}
+                {jiraError && (
+                  <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl">
+                    <span className="material-symbols-outlined text-[14px] text-red-500 mt-0.5 shrink-0">error</span>
+                    <p className="text-[12px] text-red-700 leading-snug">{jiraError}</p>
+                  </div>
+                )}
 
-          {/* Requirements */}
-          {(body.functional_requirements?.length > 0 || body.non_functional_requirements?.length > 0) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {body.functional_requirements?.length > 0 && (
-                <ResultSection icon="checklist" title="Functional Requirements">
-                  <ul className="space-y-2">
-                    {body.functional_requirements.map((r, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-on-surface">
-                        <span className="material-symbols-outlined text-[14px] text-primary mt-0.5 shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                        {r}
-                      </li>
-                    ))}
-                  </ul>
-                </ResultSection>
-              )}
-              {body.non_functional_requirements?.length > 0 && (
-                <ResultSection icon="tune" title="Non-Functional Requirements">
-                  <ul className="space-y-2">
-                    {body.non_functional_requirements.map((r, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-on-surface">
-                        <span className="material-symbols-outlined text-[14px] text-on-surface-variant mt-0.5 shrink-0">radio_button_unchecked</span>
-                        {r}
-                      </li>
-                    ))}
-                  </ul>
-                </ResultSection>
-              )}
+                {/* Pushed successfully */}
+                {jiraResult ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-100 rounded-xl">
+                      <span className="material-symbols-outlined text-[16px] text-green-600" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                      <p className="text-[12px] font-semibold text-green-800">Pushed successfully</p>
+                    </div>
+                    <a
+                      href={jiraResult.issue_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-between gap-2 px-4 py-3 bg-[#0052CC]/5 border border-[#0052CC]/20 rounded-xl hover:bg-[#0052CC]/10 transition-colors group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[11px] font-bold text-[#0052CC] shrink-0">{jiraResult.issue_key}</span>
+                        <span className="text-[10px] text-on-surface-variant truncate">· {jiraResult.issue_type}</span>
+                      </div>
+                      <span className="material-symbols-outlined text-[14px] text-[#0052CC] group-hover:translate-x-0.5 transition-transform shrink-0">open_in_new</span>
+                    </a>
+                  </div>
+
+                /* Connected — show project picker + push button */
+                ) : jiraState === "connected" || jiraState === "loading_projects" ? (
+                  <div className="space-y-3">
+                    {/* Connection indicator */}
+                    {jiraInfo?.display_name && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-surface-container rounded-lg border border-outline">
+                        <div className="w-6 h-6 rounded-full bg-[#0052CC] flex items-center justify-center shrink-0">
+                          <span className="text-[10px] font-bold text-white">
+                            {jiraInfo.display_name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold text-on-surface truncate">{jiraInfo.display_name}</p>
+                          <p className="text-[10px] text-green-600 font-medium">Connected</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Project selector */}
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1.5">
+                        Target Project
+                      </label>
+                      {jiraState === "loading_projects" ? (
+                        <div className="flex items-center gap-2 px-3 py-2.5 bg-surface-container border border-outline rounded-lg">
+                          <span className="w-3.5 h-3.5 border-2 border-outline border-t-[#0052CC] rounded-full animate-spin shrink-0" />
+                          <span className="text-sm text-on-surface-variant">Loading projects…</span>
+                        </div>
+                      ) : (
+                        <select
+                          value={selectedProject}
+                          onChange={(e) => setSelectedProject(e.target.value)}
+                          className="w-full px-3 py-2.5 bg-surface-container border border-outline rounded-lg text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-[#0052CC]/20 focus:border-[#0052CC] transition-all appearance-none"
+                        >
+                          <option value="">Select a project…</option>
+                          {jiraProjects.map((p) => (
+                            <option key={p.key} value={p.key}>{p.name} ({p.key})</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Push button */}
+                    <button
+                      type="button"
+                      onClick={handlePushFeatureToJira}
+                      disabled={!selectedProject || pushingToJira || jiraState === "loading_projects"}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#0052CC] text-white text-sm font-bold rounded-xl hover:bg-[#0047B3] active:scale-[0.98] transition-all shadow-sm shadow-[#0052CC]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {pushingToJira ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Pushing to Jira…
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[16px]" style={{ fontVariationSettings: "'FILL' 1" }}>publish</span>
+                          Push Feature to Jira
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                /* Disconnected / needs auth */
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-surface-container border border-outline rounded-xl">
+                      <span className="material-symbols-outlined text-[14px] text-on-surface-variant">link_off</span>
+                      <p className="text-[12px] text-on-surface-variant">Jira not connected</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConnectJira}
+                      disabled={jiraState === "connecting" || jiraState === "checking"}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#0052CC] text-white text-sm font-bold rounded-xl hover:bg-[#0047B3] transition-all shadow-sm shadow-[#0052CC]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {(jiraState === "connecting" || jiraState === "checking") ? (
+                        <>
+                          <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          {jiraState === "checking" ? "Checking connection…" : "Connecting…"}
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[16px]">link</span>
+                          Connect Atlassian
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
+          </div>
 
-          {/* Dependencies + Metrics */}
-          {(body.dependencies?.length > 0 || body.success_metrics?.length > 0) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {body.dependencies?.length > 0 && (
-                <ResultSection icon="link" title="Dependencies">
-                  <ul className="space-y-2">
-                    {body.dependencies.map((d, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-on-surface">
-                        <span className="material-symbols-outlined text-[14px] text-amber-500 mt-0.5 shrink-0">warning</span>
-                        {d}
-                      </li>
-                    ))}
-                  </ul>
-                </ResultSection>
-              )}
-              {body.success_metrics?.length > 0 && (
-                <ResultSection icon="analytics" title="Success Metrics">
-                  <ul className="space-y-2">
-                    {body.success_metrics.map((m, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-on-surface">
-                        <span className="material-symbols-outlined text-[14px] text-green-500 mt-0.5 shrink-0">bar_chart</span>
-                        {m}
-                      </li>
-                    ))}
-                  </ul>
-                </ResultSection>
-              )}
+          {/* ── Right panel — sections ───────────────────────────────── */}
+          <div className="space-y-4">
+
+            {/* Problem + Solution row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ResultSection icon="report_problem" title="Problem Statement" accent="rose">
+                <p className="text-sm text-on-surface leading-relaxed">{body.problem_statement}</p>
+              </ResultSection>
+              <ResultSection icon="lightbulb" title="Proposed Solution" accent="violet">
+                <p className="text-sm text-on-surface leading-relaxed">{body.proposed_solution}</p>
+              </ResultSection>
             </div>
-          )}
 
+            {/* Value row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ResultSection icon="favorite" title="User Value" accent="blue">
+                <p className="text-sm text-on-surface leading-relaxed">{body.user_value}</p>
+              </ResultSection>
+              <ResultSection icon="trending_up" title="Business Value" accent="green">
+                <p className="text-sm text-on-surface leading-relaxed">{body.business_value}</p>
+              </ResultSection>
+            </div>
+
+            {/* Requirements */}
+            {(body.functional_requirements?.length > 0 || body.non_functional_requirements?.length > 0) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {body.functional_requirements?.length > 0 && (
+                  <ResultSection icon="checklist" title="Functional Requirements" accent="blue">
+                    <ul className="space-y-2.5">
+                      {body.functional_requirements.map((r, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-sm text-on-surface">
+                          <span className="material-symbols-outlined text-[14px] text-blue-500 mt-0.5 shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                          <span className="leading-relaxed">{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </ResultSection>
+                )}
+                {body.non_functional_requirements?.length > 0 && (
+                  <ResultSection icon="tune" title="Non-Functional Requirements" accent="slate">
+                    <ul className="space-y-2.5">
+                      {body.non_functional_requirements.map((r, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-sm text-on-surface">
+                          <span className="material-symbols-outlined text-[14px] text-slate-400 mt-0.5 shrink-0">radio_button_unchecked</span>
+                          <span className="leading-relaxed">{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </ResultSection>
+                )}
+              </div>
+            )}
+
+            {/* Dependencies + Metrics */}
+            {(body.dependencies?.length > 0 || body.success_metrics?.length > 0) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {body.dependencies?.length > 0 && (
+                  <ResultSection icon="link" title="Dependencies" accent="amber">
+                    <ul className="space-y-2.5">
+                      {body.dependencies.map((d, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-sm text-on-surface">
+                          <span className="material-symbols-outlined text-[14px] text-amber-500 mt-0.5 shrink-0">warning</span>
+                          <span className="leading-relaxed">{d}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </ResultSection>
+                )}
+                {body.success_metrics?.length > 0 && (
+                  <ResultSection icon="analytics" title="Success Metrics" accent="green">
+                    <ul className="space-y-2.5">
+                      {body.success_metrics.map((m, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-sm text-on-surface">
+                          <span className="material-symbols-outlined text-[14px] text-green-500 mt-0.5 shrink-0">bar_chart</span>
+                          <span className="leading-relaxed">{m}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </ResultSection>
+                )}
+              </div>
+            )}
+
+          </div>
         </div>
       </div>
     );

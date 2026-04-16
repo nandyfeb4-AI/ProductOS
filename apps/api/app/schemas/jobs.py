@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 JobType = Literal[
     "feature_generation",
+    "story_generation",
     "opportunity_synthesis",
     "solution_shaping",
     "artifact_generation",
