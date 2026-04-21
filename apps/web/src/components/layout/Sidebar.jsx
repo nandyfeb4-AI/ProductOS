@@ -11,7 +11,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ activeView, onNavigate }) {
   // Pipeline views are entered from a project — keep Projects highlighted
-  const PROJECT_VIEWS = new Set(["project-detail", "workshop", "opportunity", "shaping", "artifacts", "stories", "jira", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement"]);
+  const PROJECT_VIEWS = new Set(["project-detail", "workshop", "opportunity", "shaping", "artifacts", "stories", "jira", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement", "competitor-analysis"]);
   const effectiveView = PROJECT_VIEWS.has(activeView) ? "projects" : activeView;
   return (
     <aside className="group flex flex-col h-screen fixed left-0 top-0 w-20 hover:w-64 transition-all duration-300 ease-in-out bg-sidebar border-r border-slate-800 z-50 overflow-hidden shadow-sidebar">
@@ -39,7 +39,7 @@ export default function Sidebar({ activeView, onNavigate }) {
                 key={view}
                 onClick={() => onNavigate(view)}
                 className={[
-                  "w-full flex items-center gap-4 px-4 py-3 rounded-md transition-all duration-150 active:scale-95 whitespace-nowrap font-headline text-sm",
+                  "w-full flex items-center gap-4 px-2.5 group-hover:px-4 py-3 rounded-md transition-all duration-150 active:scale-95 whitespace-nowrap font-headline text-sm",
                   isActive
                     ? "bg-primary text-white shadow-lg shadow-blue-900/20"
                     : "text-sidebar-text hover:text-white hover:bg-sidebar-hover",

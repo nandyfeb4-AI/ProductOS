@@ -1,5 +1,11 @@
 import { getJson, postJson } from "./client";
 
+export const runCompetitorAnalysis = (body) =>
+  postJson("/api/agents/competitor-analysis", body);
+
+export const startCompetitorAnalysisJob = (body) =>
+  postJson("/api/jobs/competitor-analysis", body);
+
 export const runFeatureGenerator = (body) =>
   postJson("/api/agents/feature-generator", body);
 

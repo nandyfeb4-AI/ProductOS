@@ -18,6 +18,15 @@ STORY_REFINEMENT_REQUIRED_SECTIONS = [
     "priority",
 ]
 
+BACKLOG_READY_CRITERIA = [
+    "Acceptance criteria are concrete, measurable, and testable",
+    "Implementation scope is explicit enough that engineering does not need a PM follow-up to begin",
+    "Dependencies and integration touchpoints are named when relevant",
+    "Edge cases or fallback behavior are called out when they materially affect delivery",
+    "API contracts, events, payload fields, validation rules, or timing expectations are explicit when relevant",
+    "The story can be verified by QA without interpretation or guesswork",
+]
+
 
 def default_story_refinement_skill() -> dict[str, Any]:
     return {
@@ -61,6 +70,15 @@ def build_story_refinement_instructions(skill: Mapping[str, Any] | None) -> str:
         "Return JSON only using the provided schema.",
         f"Each refined story must include exactly these sections: {', '.join(required_sections)}.",
         "Use 1 to 5 scores, where 1 is weak and 5 is strong.",
+        (
+            "A story is only ready for execution when all of the following are true: "
+            + "; ".join(BACKLOG_READY_CRITERIA)
+            + "."
+        ),
+        (
+            "Set `needs_refinement` to false only when the story is truly execution-ready. "
+            "If any of the readiness criteria are missing, ambiguous, or only partially specified, set `needs_refinement` to true."
+        ),
     ]
 
     if quality_bar:
@@ -160,6 +178,7 @@ def normalize_story_refinement_evaluation(item: Mapping[str, Any] | None) -> dic
 
 __all__ = [
     "build_story_refinement_instructions",
+    "BACKLOG_READY_CRITERIA",
     "default_story_refinement_skill",
     "normalize_story_body",
     "normalize_story_refinement_evaluation",

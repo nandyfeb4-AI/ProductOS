@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, WebSocket
 
 from app.api.deps import get_job_service, get_pipeline_service
 from app.schemas.agents import (
+    CompetitorAnalysisRequest,
     FeatureGeneratorRequest,
     FeaturePrioritizerRequest,
     FeatureRefinerRequest,
@@ -38,6 +39,27 @@ async def start_backlog_refinement_analysis(
         running_stage="running",
         running_message="Analyzing backlog coverage and routing stories into refinement buckets.",
         runner=lambda: service.analyze_backlog_refinement(payload),
+    )
+    return GenerationJobAcceptedResponse(job=job)
+
+
+@router.post("/competitor-analysis", response_model=GenerationJobAcceptedResponse, status_code=202)
+async def start_competitor_analysis(
+    payload: CompetitorAnalysisRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+    job_service: JobService = Depends(get_job_service),
+) -> GenerationJobAcceptedResponse:
+    job = job_service.enqueue(
+        job_type="competitor_analysis",
+        input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="competitor_analysis",
+        agent_label="Competitor Analysis",
+        queued_stage="queued",
+        queued_message="Queued for AI competitor analysis.",
+        running_stage="running",
+        running_message="Analyzing named competitors against the provided product context.",
+        runner=lambda: service.run_competitor_analysis(payload),
     )
     return GenerationJobAcceptedResponse(job=job)
 
@@ -141,6 +163,9 @@ async def start_feature_generation(
     job = job_service.enqueue(
         job_type="feature_generation",
         input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="feature_generator",
+        agent_label="Feature Generator",
         queued_stage="queued",
         queued_message="Queued for AI feature generation.",
         running_stage="running",
@@ -159,6 +184,9 @@ async def start_feature_refinement(
     job = job_service.enqueue(
         job_type="feature_refinement",
         input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="feature_refiner",
+        agent_label="Feature Refiner",
         queued_stage="queued",
         queued_message="Queued for AI feature refinement.",
         running_stage="running",
@@ -195,6 +223,9 @@ async def start_feature_prioritization(
     job = job_service.enqueue(
         job_type="feature_prioritization",
         input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="feature_prioritizer",
+        agent_label="Feature Prioritizer",
         queued_stage="queued",
         queued_message="Queued for AI feature prioritization.",
         running_stage="running",
@@ -213,6 +244,9 @@ async def start_story_generation(
     job = job_service.enqueue(
         job_type="story_generation",
         input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="story_generator",
+        agent_label="Story Generator",
         queued_stage="queued",
         queued_message="Queued for AI story generation.",
         running_stage="running",
@@ -231,6 +265,9 @@ async def start_story_refinement(
     job = job_service.enqueue(
         job_type="story_refinement",
         input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="story_refiner",
+        agent_label="Story Refiner",
         queued_stage="queued",
         queued_message="Queued for AI story refinement.",
         running_stage="running",
@@ -249,6 +286,9 @@ async def start_story_slicing_agent(
     job = job_service.enqueue(
         job_type="story_slicer",
         input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="story_slicer",
+        agent_label="Story Slicer",
         queued_stage="queued",
         queued_message="Queued for AI story slicing.",
         running_stage="running",

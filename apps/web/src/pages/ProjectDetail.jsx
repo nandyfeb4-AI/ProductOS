@@ -4,6 +4,7 @@ import { createWorkshop, getWorkshop, getWorkshops } from "../api/workshops";
 import { getSkills } from "../api/skills";
 import { getProjectFeatures } from "../api/projectFeatures";
 import { getProjectStories }  from "../api/projectStories";
+import { getProjectAgentRuns, invalidateProjectAgentRuns } from "../api/projects";
 import {
   getWorkflow, restoreWorkflowState, clearWorkflowState,
   storeCurrentWorkshopId,
@@ -1018,10 +1019,244 @@ function StoriesTab({ project, onNavigate, onCountUpdate }) {
   );
 }
 
+// ─── Agent run history ────────────────────────────────────────────────────────
+const RUN_STATUS_CFG = {
+  queued:    { label: "Queued",    cls: "bg-slate-100 text-slate-500 border-slate-200", dot: "bg-slate-400",  pulse: false },
+  running:   { label: "Running",   cls: "bg-blue-50 text-blue-600 border-blue-100",    dot: "bg-blue-500",   pulse: true  },
+  completed: { label: "Completed", cls: "bg-green-50 text-green-600 border-green-100", dot: "bg-green-500",  pulse: false },
+  failed:    { label: "Failed",    cls: "bg-red-50 text-red-600 border-red-200",       dot: "bg-red-500",    pulse: false },
+  cancelled: { label: "Cancelled", cls: "bg-slate-100 text-slate-500 border-slate-200", dot: "bg-slate-400", pulse: false },
+};
+
+function formatRelative(iso) {
+  if (!iso) return "—";
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (mins < 1)  return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function RunCard({ run, expanded, onToggle }) {
+  const sc = RUN_STATUS_CFG[run.status] ?? RUN_STATUS_CFG.queued;
+  const canExpand = run.status === "completed" && run.result_payload;
+  return (
+    <div className="border border-outline rounded-xl overflow-hidden bg-surface">
+      <div className="flex items-start gap-3 p-3">
+        <div className={`w-2 h-2 rounded-full mt-[5px] shrink-0 ${sc.dot} ${sc.pulse ? "animate-pulse" : ""}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${sc.cls}`}>
+              {sc.label}
+            </span>
+            <span className="text-[11px] text-on-surface-variant">{formatRelative(run.created_at)}</span>
+          </div>
+          {run.status === "running" && run.progress_message && (
+            <p className="text-[11px] text-blue-600 mt-1 truncate">{run.progress_message}</p>
+          )}
+          {run.status === "failed" && run.error_message && (
+            <p className="text-[11px] text-red-600 mt-1 line-clamp-2">{run.error_message}</p>
+          )}
+        </div>
+        {canExpand && (
+          <button
+            onClick={onToggle}
+            className="shrink-0 text-on-surface-variant hover:text-primary transition-colors ml-1"
+            title={expanded ? "Hide result" : "Inspect result"}
+          >
+            <span className="material-symbols-outlined text-[16px]">
+              {expanded ? "expand_less" : "data_object"}
+            </span>
+          </button>
+        )}
+      </div>
+      {expanded && run.result_payload && (
+        <div className="border-t border-outline bg-surface-container/40 p-3">
+          <pre className="text-[10px] leading-relaxed text-on-surface-variant overflow-auto max-h-60 whitespace-pre-wrap break-words">
+            {JSON.stringify(run.result_payload, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const STATUS_FILTER_OPTIONS = [
+  { value: null,        label: "All statuses" },
+  { value: "completed", label: "Completed"    },
+  { value: "running",   label: "Running"      },
+  { value: "failed",    label: "Failed"       },
+];
+
+function AgentRunHistorySection({ project }) {
+  const [runs, setRuns]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [agentFilter, setAgentFilter]   = useState(null);
+  const [statusFilter, setStatusFilter] = useState(null);
+  const [expandedId, setExpandedId]     = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getProjectAgentRuns(project.id, { agentKey: agentFilter, status: statusFilter })
+      .then((res) => {
+        if (cancelled) return;
+        const jobs = Array.isArray(res) ? res : (res.jobs ?? []);
+        setRuns(jobs);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.message ?? "Failed to load agent run history.");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [project.id, agentFilter, statusFilter]);
+
+  // Build agent filter options from catalog
+  const agentOptions = [
+    { key: null, label: "All agents" },
+    ...AGENT_CATALOG.map((a) => ({ key: a.agentKey, label: a.name })),
+  ];
+
+  // Sort newest first
+  const sorted = [...runs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  // Group by agent_label when no agent filter active
+  const groups = [];
+  if (!agentFilter) {
+    const seen = {};
+    sorted.forEach((run) => {
+      const label = run.agent_label ?? run.agent_key ?? "Unknown";
+      if (!seen[label]) { seen[label] = []; groups.push({ label, runs: seen[label] }); }
+      seen[label].push(run);
+    });
+  }
+
+  return (
+    <div className="mt-10 pt-8 border-t border-outline/60">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-5">
+        <span className="material-symbols-outlined text-[17px] text-on-surface-variant">history</span>
+        <p className="text-sm font-bold font-headline text-on-surface">Agent Run History</p>
+        {!loading && (
+          <span className="text-[10px] font-bold text-on-surface-variant bg-surface-container px-2 py-0.5 rounded-full border border-outline">
+            {runs.length}
+          </span>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-3 mb-5">
+        {/* Agent filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {agentOptions.map((opt) => (
+            <button
+              key={opt.key ?? "__all__"}
+              onClick={() => { setAgentFilter(opt.key); setExpandedId(null); }}
+              className={[
+                "text-[11px] font-semibold px-3 py-1 rounded-full border transition-all",
+                agentFilter === opt.key
+                  ? "bg-primary text-white border-primary shadow-sm"
+                  : "bg-surface text-on-surface-variant border-outline hover:border-primary/40 hover:text-on-surface",
+              ].join(" ")}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {/* Status filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {STATUS_FILTER_OPTIONS.map((opt) => {
+            const sc = opt.value ? RUN_STATUS_CFG[opt.value] : null;
+            return (
+              <button
+                key={opt.value ?? "__all__"}
+                onClick={() => { setStatusFilter(opt.value); setExpandedId(null); }}
+                className={[
+                  "text-[11px] font-semibold px-3 py-1 rounded-full border transition-all",
+                  statusFilter === opt.value
+                    ? sc
+                      ? `${sc.cls} font-bold`
+                      : "bg-primary text-white border-primary shadow-sm"
+                    : "bg-surface text-on-surface-variant border-outline hover:border-primary/40 hover:text-on-surface",
+                ].join(" ")}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="space-y-2 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-12 bg-surface-container rounded-xl" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+          <span className="material-symbols-outlined text-[16px]">error</span>
+          {error}
+        </div>
+      ) : runs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <span className="material-symbols-outlined text-[32px] text-on-surface-variant/40 mb-3">history_toggle_off</span>
+          <p className="text-sm font-semibold text-on-surface-variant">No agent runs yet</p>
+          <p className="text-[12px] text-on-surface-variant/60 mt-1">
+            {agentFilter || statusFilter ? "Try adjusting the filters." : "Run an agent above to get started."}
+          </p>
+        </div>
+      ) : agentFilter ? (
+        // Flat list for single-agent filter
+        <div className="space-y-2">
+          {sorted.map((run) => (
+            <RunCard
+              key={run.id}
+              run={run}
+              expanded={expandedId === run.id}
+              onToggle={() => setExpandedId((prev) => (prev === run.id ? null : run.id))}
+            />
+          ))}
+        </div>
+      ) : (
+        // Grouped by agent
+        <div className="space-y-6">
+          {groups.map(({ label, runs: groupRuns }) => (
+            <div key={label}>
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface-variant">{label}</p>
+                <span className="text-[10px] text-on-surface-variant/60 bg-surface-container px-1.5 py-0.5 rounded-full border border-outline">
+                  {groupRuns.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {groupRuns.map((run) => (
+                  <RunCard
+                    key={run.id}
+                    run={run}
+                    expanded={expandedId === run.id}
+                    onToggle={() => setExpandedId((prev) => (prev === run.id ? null : run.id))}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Agents tab ───────────────────────────────────────────────────────────────
 const AGENT_CATALOG = [
   {
     id:          "feature-generator",
+    agentKey:    "feature_generator",
     icon:        "auto_awesome",
     name:        "Feature Generator",
     description: "Generate a PM-ready feature draft from a problem statement, user research, or requirement context.",
@@ -1033,6 +1268,7 @@ const AGENT_CATALOG = [
   },
   {
     id:          "story-generator",
+    agentKey:    "story_generator",
     icon:        "receipt_long",
     name:        "Story Generator",
     description: "Break a persisted feature into PM-ready user stories using the active Story Spec Skill.",
@@ -1044,6 +1280,7 @@ const AGENT_CATALOG = [
   },
   {
     id:          "story-refiner",
+    agentKey:    "story_refiner",
     icon:        "auto_fix_high",
     name:        "Story Refiner",
     description: "Evaluate and refine persisted project stories — improve clarity, testability, and acceptance criteria using the active Story Refinement Skill.",
@@ -1055,6 +1292,7 @@ const AGENT_CATALOG = [
   },
   {
     id:          "story-slicer",
+    agentKey:    "story_slicer",
     icon:        "call_split",
     name:        "Story Slicer",
     description: "Decompose a large persisted story into smaller, independently deliverable child stories using the active Story Slicing Skill.",
@@ -1066,6 +1304,7 @@ const AGENT_CATALOG = [
   },
   {
     id:          "feature-refiner",
+    agentKey:    "feature_refiner",
     icon:        "auto_fix_high",
     name:        "Feature Refiner",
     description: "Evaluate and refine a persisted project feature — improve clarity, completeness, and success metrics using the active Feature Refinement Skill.",
@@ -1077,6 +1316,7 @@ const AGENT_CATALOG = [
   },
   {
     id:          "feature-prioritizer",
+    agentKey:    "feature_prioritizer",
     icon:        "sort",
     name:        "Feature Prioritizer",
     description: "Rank persisted project features using an impact-vs-effort framework — score, bucket, and recommend priority order using the active Feature Prioritization Skill.",
@@ -1085,6 +1325,18 @@ const AGENT_CATALOG = [
     stripe:      "from-orange-400 via-orange-300 to-amber-300",
     skillType:   "feature_prioritization",
     btnCls:      "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 shadow-orange-500/20",
+  },
+  {
+    id:          "competitor-analysis",
+    agentKey:    "competitor_analysis",
+    icon:        "query_stats",
+    name:        "Competitor Analysis",
+    description: "Analyze named competitors against your product context — compare positioning, threats, gaps, and differentiation opportunities using the active Competitor Analysis Skill.",
+    color:       "text-teal-600",
+    bg:          "bg-teal-50 border-teal-100",
+    stripe:      "from-teal-400 via-teal-300 to-cyan-300",
+    skillType:   "competitor_analysis",
+    btnCls:      "bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-500 hover:to-teal-600 shadow-teal-500/20",
   },
 ];
 
@@ -1098,6 +1350,8 @@ function AgentsTab({ project, onNavigate }) {
         sessionStorage.removeItem(FEATURE_RESULT_RESTORE_KEY);
       } catch {}
     }
+    // Bust the run-history cache so the history section sees a fresh snapshot on return
+    invalidateProjectAgentRuns(project.id);
     onNavigate?.(agentId, project);
   }
 
@@ -1173,6 +1427,7 @@ function AgentsTab({ project, onNavigate }) {
           );
         })}
       </div>
+      <AgentRunHistorySection project={project} />
     </div>
   );
 }

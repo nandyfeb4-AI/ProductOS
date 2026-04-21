@@ -62,6 +62,9 @@ class JobService:
         *,
         job_type: str,
         input_payload: dict[str, Any],
+        project_id: str | None = None,
+        agent_key: str | None = None,
+        agent_label: str | None = None,
         queued_stage: str,
         queued_message: str,
         running_stage: str,
@@ -71,6 +74,9 @@ class JobService:
         row = self.repository.create_job(
             job_type=job_type,
             input_payload=input_payload,
+            project_id=project_id,
+            agent_key=agent_key,
+            agent_label=agent_label,
             progress_stage=queued_stage,
             progress_message=queued_message,
         )

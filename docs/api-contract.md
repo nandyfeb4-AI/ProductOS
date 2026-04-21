@@ -46,6 +46,41 @@ Skills are reusable cross-project behavior definitions that shape how agents and
   - `integration_notes`
 - Response: updated `SkillResponse`
 
+## Project Agent Runs
+
+### `GET /api/projects/{project_id}/agent-runs`
+- Purpose: list standalone AI agent runs for the corresponding project
+- Query params:
+  - `agent_key` optional
+  - `status` optional
+- Response:
+```json
+{
+  "jobs": [
+    {
+      "id": "uuid",
+      "job_type": "feature_generation",
+      "project_id": "uuid",
+      "agent_key": "feature_generator",
+      "agent_label": "Feature Generator",
+      "status": "queued|running|completed|failed|cancelled",
+      "progress_stage": "queued|running|completed|failed",
+      "progress_message": "string|null",
+      "input_payload": {},
+      "result_payload": {},
+      "error_message": "string|null",
+      "created_at": "iso",
+      "updated_at": "iso",
+      "completed_at": "iso|null"
+    }
+  ]
+}
+```
+- Behavior:
+  - returns project-scoped runs for standalone agents only
+  - workflow jobs are not included in this view
+  - newest runs first
+
 ## Agents
 
 ### `POST /api/agents/feature-generator`
@@ -152,6 +187,57 @@ Skills are reusable cross-project behavior definitions that shape how agents and
 }
 ```
 - Behavior: uses the OpenAI Responses API, automatically applies the active `feature_refinement` skill, evaluates each feature first, persists refined content back into `project_features`, and returns both the updated features and their evaluation scores
+
+### `POST /api/agents/competitor-analysis`
+- Purpose: reusable agent that analyzes named competitors against a provided product context
+- Request:
+```json
+{
+  "project_id": "uuid",
+  "source_type": "prompt",
+  "product_name": "ProductOS",
+  "product_summary": "AI-native product management platform for discovery, planning, backlog refinement, and delivery execution.",
+  "target_market": "B2B SaaS product teams",
+  "known_competitors": ["Productboard", "Aha!", "Jira Product Discovery"],
+  "analysis_goal": "Understand where ProductOS should differentiate in PM workflow automation.",
+  "constraints": ["Do not assume live web research"],
+  "supporting_context": ["Focus on workflow automation, backlog readiness, and PM execution"]
+}
+```
+- Response:
+```json
+{
+  "market_summary": "The space is crowded with roadmap and prioritization tools, but fewer products connect discovery, execution readiness, and delivery workflows in one layer.",
+  "strategic_recommendations": [
+    "Lean into workflow automation rather than static planning surfaces",
+    "Differentiate on execution readiness and Jira-connected operations"
+  ],
+  "differentiation_opportunities": [
+    "Human-in-the-loop agentic workflows for PM operations",
+    "Backlog health and execution readiness instead of roadmap-only planning"
+  ],
+  "blind_spots": [
+    "Market messaging may underplay collaboration and governance needs"
+  ],
+  "results": [
+    {
+      "competitor_name": "Productboard",
+      "competitor_summary": "Strong on roadmap communication and feedback consolidation, weaker on execution workflow depth.",
+      "analysis": {
+        "category": "direct",
+        "confidence_score": 4,
+        "threat_level": "high",
+        "strengths": ["Established PM brand", "Strong feedback intake and prioritization workflows"],
+        "weaknesses": ["Less execution-oriented", "Backlog transformation may require other tools"],
+        "feature_gaps": ["Agentic backlog refinement", "Execution-ready workflow orchestration"],
+        "positioning_summary": "Best fit for roadmap-centric product planning organizations.",
+        "recommended_response": "Position ProductOS around discovery-to-delivery execution, not just roadmap planning."
+      }
+    }
+  ]
+}
+```
+- Behavior: uses the OpenAI Responses API, automatically applies the active `competitor_analysis` skill, analyzes only the provided product context plus named competitors, and fails explicitly when AI output is incomplete or unavailable
 
 ### `POST /api/agents/feature-prioritizer`
 - Purpose: reusable agent that evaluates and ranks one or more persisted project features

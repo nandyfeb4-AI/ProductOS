@@ -21,9 +21,11 @@ import FeatureRefinerAgent     from "./pages/FeatureRefinerAgent";
 import FeaturePrioritizerAgent    from "./pages/FeaturePrioritizerAgent";
 import FeatureHardeningWorkflow    from "./pages/FeatureHardeningWorkflow";
 import BacklogRefinementWorkflow  from "./pages/BacklogRefinementWorkflow";
+import CompetitorAnalysisAgent    from "./pages/CompetitorAnalysisAgent";
 import TeamCapacity               from "./pages/TeamCapacity";
 import Skills                    from "./pages/Skills";
 import Placeholder             from "./pages/Placeholder";
+import Landing                 from "./pages/Landing";
 
 // ─── Stable placeholder components (defined outside to keep references stable) ─
 const PlaceholderBacklog = () => <Placeholder title="Backlog" />;
@@ -50,15 +52,19 @@ const VIEWS = {
   "feature-prioritizer":  FeaturePrioritizerAgent,
   "feature-hardening":       FeatureHardeningWorkflow,
   "backlog-refinement":     BacklogRefinementWorkflow,
+  "competitor-analysis":    CompetitorAnalysisAgent,
   team:              TeamCapacity,
   backlog:           PlaceholderBacklog,
   reports:           PlaceholderReports,
 };
 
 export default function App() {
-  const [activeView, setActiveView] = useState(
-    () => sessionStorage.getItem("workflow_active_view") ?? "dashboard"
-  );
+  const hasEnteredApp = sessionStorage.getItem("app_entered") === "true";
+
+  const [activeView, setActiveView] = useState(() => {
+    if (!hasEnteredApp) return "landing";
+    return sessionStorage.getItem("workflow_active_view") ?? "dashboard";
+  });
   const [activeProject, setActiveProject] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem("active_project") ?? "null"); }
     catch { return null; }
@@ -67,7 +73,9 @@ export default function App() {
   const path = window.location.pathname;
 
   useEffect(() => {
-    sessionStorage.setItem("workflow_active_view", activeView);
+    if (activeView !== "landing") {
+      sessionStorage.setItem("workflow_active_view", activeView);
+    }
   }, [activeView]);
 
   // navigate(view) — standard navigation
@@ -79,6 +87,18 @@ export default function App() {
     }
     setActiveView(view);
   }, []);
+
+  // Enter app from the landing page
+  const handleEnterApp = useCallback(() => {
+    sessionStorage.setItem("app_entered", "true");
+    sessionStorage.setItem("workflow_active_view", "dashboard");
+    setActiveView("dashboard");
+  }, []);
+
+  // Show landing page before the user enters the app
+  if (activeView === "landing") {
+    return <Landing onEnter={handleEnterApp} />;
+  }
 
   if (path === "/oauth/mural/callback") {
     return <MuralOAuthCallback onDone={() => {
@@ -99,7 +119,7 @@ export default function App() {
   }
 
   // Guard: project-scoped views require an active project — redirect to projects if none
-  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement", "team"]);
+  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement", "competitor-analysis", "team"]);
   const resolvedView = (PROJECT_SCOPED_VIEWS.has(activeView) && !activeProject) ? "projects" : activeView;
   const ViewComponent = VIEWS[resolvedView] ?? VIEWS.dashboard;
 

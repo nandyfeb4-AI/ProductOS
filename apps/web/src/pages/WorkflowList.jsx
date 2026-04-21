@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getWorkflows, updateWorkflow, restoreWorkflowState, clearWorkflowState } from "../api/workflows";
 import { getProject } from "../api/projects";
+import { preloadJiraConnectionContext } from "../api/jira";
 
 // ─── Pipeline step configs ────────────────────────────────────────────────────
 const PIPELINE_STEPS = ["workshop", "opportunity", "shaping", "artifacts", "stories", "jira"];
@@ -528,6 +529,9 @@ export default function WorkflowList({ onNavigate, project = null, projectId = n
   const [activeDefinition, setActiveDefinition] = useState(null); // null | "d2d" | "fh" | "br"
 
   useEffect(() => { load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    preloadJiraConnectionContext().catch(() => {});
+  }, []);
 
   async function load() {
     setLoading(true);

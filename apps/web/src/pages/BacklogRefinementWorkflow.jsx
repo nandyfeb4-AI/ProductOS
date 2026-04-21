@@ -10,7 +10,11 @@ import {
   getGenerationJob,
 } from "../api/agents";
 import { openJobSocket } from "../api/jobs";
-import { getJiraStatus, getJiraProjects } from "../api/jira";
+import {
+  getCachedJiraConnectionContext,
+  persistJiraSelectedProject,
+  preloadJiraConnectionContext,
+} from "../api/jira";
 import { getProjectTeam } from "../api/projects";
 
 const BACKLOG_REFINEMENT_RESTORE_KEY = "backlog_refinement_restore_pending";
@@ -731,6 +735,7 @@ export default function BacklogRefinementWorkflow({ onNavigate, project }) {
 
   // ── On mount: check Jira + restore ─────────────────────────────────────────
   useEffect(() => {
+    hydrateJiraFromCache();
     checkJira();
     if (projectId) loadTeam();
     if (workflowId && sessionStorage.getItem(BACKLOG_REFINEMENT_RESTORE_KEY) === "true") {
@@ -741,20 +746,38 @@ export default function BacklogRefinementWorkflow({ onNavigate, project }) {
 
   useEffect(() => () => { socketRef.current?.close(); }, []);
 
+  useEffect(() => {
+    if (selectedProjectKey) persistJiraSelectedProject(selectedProjectKey);
+  }, [selectedProjectKey]);
+
+  function hydrateJiraFromCache() {
+    const cached = getCachedJiraConnectionContext();
+    if (cached?.connected) {
+      setJiraState("connected");
+      setJiraProjects(Array.isArray(cached.projects) ? cached.projects : []);
+      if (cached.selectedProject) {
+        setSelectedProjectKey((current) => current || cached.selectedProject);
+      }
+      return;
+    }
+    setJiraState("checking");
+  }
+
   async function checkJira() {
     try {
-      const status = await getJiraStatus();
-      if (status?.connected) {
+      const context = await preloadJiraConnectionContext();
+      if (context?.connected) {
         setJiraState("connected");
-        try {
-          const data = await getJiraProjects();
-          setJiraProjects(Array.isArray(data) ? data : (data.projects ?? []));
-        } catch { /* best effort */ }
+        setJiraProjects(Array.isArray(context.projects) ? context.projects : []);
+        if (context.selectedProject) {
+          setSelectedProjectKey((current) => current || context.selectedProject);
+        }
       } else {
         setJiraState("disconnected");
       }
     } catch {
-      setJiraState("disconnected");
+      const cached = getCachedJiraConnectionContext();
+      if (!cached?.connected) setJiraState("disconnected");
     }
   }
 

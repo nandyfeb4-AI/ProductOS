@@ -101,6 +101,43 @@ class FeaturePrioritizerResponse(BaseModel):
     prioritization_summary: str = ""
 
 
+class CompetitorAnalysisAssessment(BaseModel):
+    category: str = "direct"
+    confidence_score: int
+    threat_level: str = "medium"
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    feature_gaps: list[str] = Field(default_factory=list)
+    positioning_summary: str = ""
+    recommended_response: str = ""
+
+
+class CompetitorAnalysisResult(BaseModel):
+    competitor_name: str
+    competitor_summary: str = ""
+    analysis: CompetitorAnalysisAssessment
+
+
+class CompetitorAnalysisRequest(BaseModel):
+    project_id: UUID
+    source_type: Literal["prompt"] = "prompt"
+    product_name: str
+    product_summary: str
+    target_market: str = ""
+    known_competitors: list[str] = Field(default_factory=list, min_length=1, max_length=8)
+    analysis_goal: str = ""
+    constraints: list[str] = Field(default_factory=list)
+    supporting_context: list[str] = Field(default_factory=list)
+
+
+class CompetitorAnalysisResponse(BaseModel):
+    market_summary: str = ""
+    strategic_recommendations: list[str] = Field(default_factory=list)
+    differentiation_opportunities: list[str] = Field(default_factory=list)
+    blind_spots: list[str] = Field(default_factory=list)
+    results: list[CompetitorAnalysisResult] = Field(default_factory=list)
+
+
 class StoryGeneratorRequest(BaseModel):
     project_id: UUID
     source_type: Literal["feature"] = "feature"

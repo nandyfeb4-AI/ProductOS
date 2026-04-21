@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from uuid import uuid4
 
 from fastapi import HTTPException, status
 
 from app.repositories.connector_repository import ConnectorRepository
+from app.repositories.job_repository import JobRepository
 from app.repositories.project_feature_repository import ProjectFeatureRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.project_team_repository import ProjectTeamRepository
@@ -43,6 +45,8 @@ from app.schemas.backlog_refinement import (
     BacklogRoutingItem,
 )
 from app.schemas.agents import (
+    CompetitorAnalysisRequest,
+    CompetitorAnalysisResponse,
     FeatureGeneratorRequest,
     FeatureGeneratorResponse,
     FeaturePrioritizerRequest,
@@ -80,6 +84,7 @@ from app.schemas.jira_connector import (
     JiraFeatureExportResponse,
     JiraProjectsResponse,
 )
+from app.schemas.jobs import GenerationJob, GenerationJobListResponse
 from app.schemas.connector_hub import ConnectorListResponse, ConnectorSummary
 from app.schemas.opportunity import (
     OpportunityCandidate,
@@ -138,6 +143,8 @@ from app.schemas.workflow_runs import (
 from app.services.mural_service import MuralService
 from app.services.artifact_generation_llm_service import ArtifactGenerationLLMService
 from app.services.feature_generation_llm_service import FeatureGenerationLLMService
+from app.services.competitor_analysis_llm_service import CompetitorAnalysisLLMService
+from app.services.competitor_analysis_skill import default_competitor_analysis_skill
 from app.services.feature_prioritization_llm_service import FeaturePrioritizationLLMService
 from app.services.feature_prioritization_skill import default_feature_prioritization_skill
 from app.services.feature_refinement_llm_service import FeatureRefinementLLMService
@@ -194,6 +201,7 @@ class PipelineService:
         self.solution_shaping_llm_service = SolutionShapingLLMService()
         self.artifact_generation_llm_service = ArtifactGenerationLLMService()
         self.feature_generation_llm_service = FeatureGenerationLLMService()
+        self.competitor_analysis_llm_service = CompetitorAnalysisLLMService()
         self.feature_prioritization_llm_service = FeaturePrioritizationLLMService()
         self.feature_refinement_llm_service = FeatureRefinementLLMService()
         self.story_generation_llm_service = StoryGenerationLLMService()
@@ -202,6 +210,7 @@ class PipelineService:
         self.story_slicing_llm_service = StorySlicingLLMService()
         self.jira_service = JiraService()
         self.connector_repository = ConnectorRepository()
+        self.job_repository = JobRepository()
         self.project_feature_repository = ProjectFeatureRepository()
         self.project_story_repository = ProjectStoryRepository()
         self.project_repository = ProjectRepository()
@@ -611,50 +620,37 @@ class PipelineService:
         story_evaluations: dict[str, StoryRefinementEvaluation] = {}
         active_story_refinement_skill = self._get_active_story_refinement_skill()
         if selected_stories:
-            # Evaluate stories in tiny internal batches so the UI still experiences
-            # a single "Analyze backlog" run, while we avoid fragile multi-story
-            # structured LLM responses that can omit items.
-            for story_batch in self._chunk_list(selected_stories, 1):
-                evaluated_batch = self.story_refinement_llm_service.refine_external(
-                    project_id=str(payload.project_id),
-                    jira_project_key=payload.jira_project_key,
-                    stories=story_batch,
-                    refinement_goal=(
-                        "Evaluate story readiness for backlog refinement routing. "
-                        "Use the story quality bar strictly so only strong, implementation-ready stories are considered ready."
-                    ),
-                    skill=active_story_refinement_skill,
-                )
-                for evaluated_story in evaluated_batch:
-                    story_evaluations[evaluated_story.issue_key] = evaluated_story.evaluation
+            max_workers = min(3, len(selected_stories))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(
+                        self._evaluate_backlog_story,
+                        project_id=str(payload.project_id),
+                        jira_project_key=payload.jira_project_key,
+                        story=story,
+                        skill=active_story_refinement_skill,
+                    )
+                    for story in selected_stories
+                ]
+                for future in as_completed(futures):
+                    issue_key, evaluation = future.result()
+                    story_evaluations[issue_key] = evaluation
 
         total_ready_points = 0.0
+        current_backlog_points = round(sum(float(story.story_points or 0) for story in selected_stories), 1)
+        velocity = int(project.average_velocity_per_sprint or 24)
+        target = velocity * 2
+        remaining_generation_shortfall = max(target - current_backlog_points, 0.0)
+
+        feature_ready_counts: dict[str, int] = {}
+        feature_refine_counts: dict[str, int] = {}
+        feature_slice_counts: dict[str, int] = {}
         for feature in selected_features:
             feature_stories = stories_by_feature.get(feature.issue_key, [])
-            if not feature_stories:
-                generate.append(
-                    BacklogRoutingItem(
-                        issue_key=feature.issue_key,
-                        issue_url=feature.issue_url,
-                        item_type="feature",
-                        title=feature.title,
-                        reason="No stories exist yet for this feature, so story generation is needed.",
-                    )
-                )
-                continue
-            if len(feature_stories) < 3:
-                generate.append(
-                    BacklogRoutingItem(
-                        issue_key=feature.issue_key,
-                        issue_url=feature.issue_url,
-                        item_type="feature",
-                        title=feature.title,
-                        reason="Story coverage for this feature is still thin, so more stories should be generated.",
-                    )
-                )
 
             for story in feature_stories:
                 if story.story_points is not None and story.story_points >= 8:
+                    feature_slice_counts[feature.issue_key] = feature_slice_counts.get(feature.issue_key, 0) + 1
                     slice_items.append(
                         BacklogRoutingItem(
                             issue_key=story.issue_key,
@@ -672,8 +668,9 @@ class PipelineService:
                     story.story_points is None
                     or evaluation is None
                     or evaluation.needs_refinement
-                    or evaluation.overall_score < 3
+                    or not self._meets_backlog_ready_bar(evaluation)
                 ):
+                    feature_refine_counts[feature.issue_key] = feature_refine_counts.get(feature.issue_key, 0) + 1
                     reason = self._build_backlog_refine_reason(story, evaluation)
                     refine.append(
                         BacklogRoutingItem(
@@ -687,6 +684,7 @@ class PipelineService:
                         )
                     )
                     continue
+                feature_ready_counts[feature.issue_key] = feature_ready_counts.get(feature.issue_key, 0) + 1
                 total_ready_points += float(story.story_points or 0)
                 ready.append(
                     BacklogRoutingItem(
@@ -700,13 +698,53 @@ class PipelineService:
                         )
                     )
 
-        velocity = int(project.average_velocity_per_sprint or 24)
-        target = velocity * 2
+        for feature in selected_features:
+            feature_stories = stories_by_feature.get(feature.issue_key, [])
+            ready_count = feature_ready_counts.get(feature.issue_key, 0)
+            refine_count = feature_refine_counts.get(feature.issue_key, 0)
+            slice_count = feature_slice_counts.get(feature.issue_key, 0)
+            priority_value = priority_rank.get((feature.priority_name or "").lower(), 0)
+
+            if not feature_stories:
+                generate.append(
+                    BacklogRoutingItem(
+                        issue_key=feature.issue_key,
+                        issue_url=feature.issue_url,
+                        item_type="feature",
+                        title=feature.title,
+                        reason="No stories exist yet for this feature, so story generation is needed.",
+                    )
+                )
+                remaining_generation_shortfall = max(0.0, remaining_generation_shortfall - 9.0)
+                continue
+
+            coverage_is_thin = len(feature_stories) < 2
+            has_no_ready_coverage = ready_count == 0
+            should_generate_more = (
+                remaining_generation_shortfall > 0
+                and priority_value >= priority_rank["medium"]
+                and coverage_is_thin
+                and has_no_ready_coverage
+                and slice_count == 0
+                and refine_count > 0
+            )
+            if should_generate_more:
+                generate.append(
+                    BacklogRoutingItem(
+                        issue_key=feature.issue_key,
+                        issue_url=feature.issue_url,
+                        item_type="feature",
+                        title=feature.title,
+                        reason="This higher-priority feature still has thin story coverage, so more stories should be generated.",
+                    )
+                )
+                remaining_generation_shortfall = max(0.0, remaining_generation_shortfall - 6.0)
+
         shortfall = round(max(target - total_ready_points, 0), 1)
         health = BacklogHealthSummary(
             average_velocity_per_sprint=velocity,
             minimum_ready_backlog_target=target,
-            total_backlog_story_points=round(sum(float(story.story_points or 0) for story in selected_stories), 1),
+            total_backlog_story_points=current_backlog_points,
             total_ready_story_points=round(total_ready_points, 1),
             backlog_point_shortfall=shortfall,
             feature_count=len(selected_features),
@@ -756,6 +794,41 @@ class PipelineService:
         if size <= 0:
             return [items]
         return [items[index : index + size] for index in range(0, len(items), size)]
+
+    def _evaluate_backlog_story(
+        self,
+        *,
+        project_id: str,
+        jira_project_key: str,
+        story: JiraBacklogStorySource,
+        skill: dict[str, object] | None,
+    ) -> tuple[str, StoryRefinementEvaluation]:
+        evaluated_batch = self.story_refinement_llm_service.refine_external(
+            project_id=project_id,
+            jira_project_key=jira_project_key,
+            stories=[story],
+            refinement_goal=(
+                "Evaluate story readiness for backlog refinement routing. "
+                "Use the story quality bar strictly so only execution-ready stories are considered ready. "
+                "A ready story must have concrete and testable acceptance criteria, explicit implementation boundaries, "
+                "clear dependencies/integration points when relevant, and enough specificity for QA and engineering to execute without PM follow-up."
+            ),
+            skill=skill,
+        )
+        if not evaluated_batch:
+            raise RuntimeError(f"AI backlog story refinement returned no evaluation for {story.issue_key}.")
+        return story.issue_key, evaluated_batch[0].evaluation
+
+    @staticmethod
+    def _meets_backlog_ready_bar(evaluation: StoryRefinementEvaluation) -> bool:
+        return (
+            evaluation.overall_score >= 4
+            and evaluation.clarity_score >= 4
+            and evaluation.acceptance_criteria_score >= 4
+            and evaluation.completeness_score >= 4
+            and evaluation.dependency_score >= 4
+            and evaluation.implementation_readiness_score >= 4
+        )
 
     def _build_backlog_refine_reason(
         self,
@@ -868,6 +941,12 @@ class PipelineService:
                 project_id=str(payload.project_id),
                 jira_project_key=payload.jira_project_key,
                 stories=[story],
+                refinement_goal=(
+                    "Refine this Jira story so it becomes ready for execution in backlog refinement. "
+                    "Make acceptance criteria measurable and testable, make implementation boundaries explicit, "
+                    "name dependencies/integration points when relevant, and add enough specificity that QA and engineering "
+                    "can execute without needing PM follow-up."
+                ),
                 skill=active_story_refinement_skill,
             )
             if not refined_results:
@@ -1280,6 +1359,22 @@ class PipelineService:
             team_members=[ProjectTeamMember(**row) for row in members],
         )
 
+    def list_project_agent_runs(
+        self,
+        project_id: str,
+        *,
+        agent_key: str | None = None,
+        status_filter: str | None = None,
+    ) -> GenerationJobListResponse:
+        self._ensure_project_exists(project_id)
+        rows = self.job_repository.list_jobs(
+            project_id=project_id,
+            agent_key=agent_key,
+            status=status_filter,
+            agent_only=True,
+        )
+        return GenerationJobListResponse(jobs=[GenerationJob(**row) for row in rows])
+
     def create_workshop_record(self, payload: WorkshopCreateRequest) -> WorkshopResponse:
         self._ensure_project_exists(str(payload.project_id))
         row = self.workshop_repository.create_workshop(
@@ -1586,6 +1681,9 @@ class PipelineService:
     def _get_active_feature_spec_skill(self) -> dict:
         return self.skill_repository.get_active_skill("feature_spec") or default_feature_spec_skill()
 
+    def _get_active_competitor_analysis_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("competitor_analysis") or default_competitor_analysis_skill()
+
     def _get_active_feature_refinement_skill(self) -> dict:
         return self.skill_repository.get_active_skill("feature_refinement") or default_feature_refinement_skill()
 
@@ -1654,6 +1752,22 @@ class PipelineService:
         )
         feature = feature.model_copy(update={"feature_id": str(persisted["id"])})
         return FeatureGeneratorResponse(feature=feature)
+
+    def run_competitor_analysis(self, payload: CompetitorAnalysisRequest) -> CompetitorAnalysisResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        if not self.competitor_analysis_llm_service.enabled:
+            raise RuntimeError("AI competitor analysis is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_competitor_analysis_skill()
+        try:
+            return self.competitor_analysis_llm_service.analyze(
+                payload,
+                skill=active_skill,
+            )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            self.logger.exception("AI competitor analysis failed")
+            raise RuntimeError("AI competitor analysis failed. Please retry.") from exc
 
     def run_feature_refiner(self, payload: FeatureRefinerRequest) -> FeatureRefinerResponse:
         self._ensure_project_exists(str(payload.project_id))

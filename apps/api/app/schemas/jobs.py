@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 JobType = Literal[
     "backlog_refinement_analysis",
     "backlog_refinement_execution",
+    "competitor_analysis",
     "feature_generation",
     "feature_hardening",
     "feature_prioritization",
@@ -27,6 +29,9 @@ JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 class GenerationJob(BaseModel):
     id: str
     job_type: JobType
+    project_id: Optional[UUID] = None
+    agent_key: Optional[str] = None
+    agent_label: Optional[str] = None
     status: JobStatus
     progress_stage: Optional[str] = None
     progress_message: Optional[str] = None
@@ -45,6 +50,10 @@ class GenerationJob(BaseModel):
 
 class GenerationJobAcceptedResponse(BaseModel):
     job: GenerationJob
+
+
+class GenerationJobListResponse(BaseModel):
+    jobs: list[GenerationJob] = Field(default_factory=list)
 
 
 class GenerationJobEvent(BaseModel):

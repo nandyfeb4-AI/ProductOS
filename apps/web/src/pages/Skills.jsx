@@ -206,6 +206,38 @@ const DEFAULT_FEATURE_PRIORITIZATION_SKILL = {
   ],
 };
 
+const DEFAULT_COMPETITOR_ANALYSIS_SKILL = {
+  name: "Default Competitor Analysis Skill",
+  slug: "default-competitor-analysis-skill",
+  skill_type: "competitor_analysis",
+  description: "Default ProductOS skill for comparing a product against named competitors and identifying threats, gaps, and differentiation opportunities.",
+  is_active: true,
+  instructions:
+    "Analyze the provided competitors against the user's product context. Use only the provided product context and general market reasoning. Do not claim live web research, citations, or current facts that were not supplied. Focus on practical PM outputs: competitive strengths, weaknesses, feature gaps, positioning, threats, and recommended responses.",
+  required_sections: [
+    "category",
+    "confidence_score",
+    "threat_level",
+    "strengths",
+    "weaknesses",
+    "feature_gaps",
+    "positioning_summary",
+    "recommended_response",
+  ],
+  quality_bar: [
+    "Return a result for every named competitor",
+    "Separate observed competitor strengths from inferred risks or gaps",
+    "Do not invent live market evidence or fake current research",
+    "Make recommendations useful for PM strategy and roadmap decisions",
+    "Differentiate direct threats from adjacent or weaker competitors",
+  ],
+  integration_notes: [
+    "This first version is analysis-only and does not persist competitor entities",
+    "Outputs should help PMs decide where to differentiate, prioritize, or refine strategy",
+    "UI should present this as provided-context competitor analysis, not live monitored intelligence",
+  ],
+};
+
 const SKILL_TYPE_CONFIG = {
   feature_spec: {
     label: "Feature Spec",
@@ -290,6 +322,20 @@ const SKILL_TYPE_CONFIG = {
     sectionIconCls: "text-orange-500",
     saveBtnCls: "from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 shadow-orange-500/20",
     inputFocusCls: "focus:border-orange-500 focus:ring-orange-500/10",
+  },
+  competitor_analysis: {
+    label: "Competitor Analysis",
+    icon: "query_stats",
+    defaultSkill: DEFAULT_COMPETITOR_ANALYSIS_SKILL,
+    badgeCls: "bg-teal-50 text-teal-600 border-teal-100",
+    ringCls: "ring-teal-500/40",
+    stripeCls: "bg-teal-500",
+    iconBgActiveCls: "bg-teal-500",
+    formBgCls: "from-teal-50/60",
+    cardActiveCls: "border-teal-200 bg-teal-50/60",
+    sectionIconCls: "text-teal-500",
+    saveBtnCls: "from-teal-600 to-teal-700 hover:from-teal-500 hover:to-teal-600 shadow-teal-500/20",
+    inputFocusCls: "focus:border-teal-500 focus:ring-teal-500/10",
   },
 };
 
@@ -413,13 +459,14 @@ export default function Skills() {
     setLoading(true);
     setError(null);
     try {
-      const [featureRes, storyRes, storyRefinementRes, storySlicingRes, featureRefinementRes, featurePrioritizationRes] = await Promise.allSettled([
+      const [featureRes, storyRes, storyRefinementRes, storySlicingRes, featureRefinementRes, featurePrioritizationRes, competitorAnalysisRes] = await Promise.allSettled([
         getSkills("feature_spec", null),
         getSkills("story_spec", null),
         getSkills("story_refinement", null),
         getSkills("story_slicing", null),
         getSkills("feature_refinement", null),
         getSkills("feature_prioritization", null),
+        getSkills("competitor_analysis", null),
       ]);
       const featureRows = featureRes.status === "fulfilled"
         ? (Array.isArray(featureRes.value) ? featureRes.value : (featureRes.value?.skills ?? []))
@@ -439,7 +486,10 @@ export default function Skills() {
       const featurePrioritizationRows = featurePrioritizationRes.status === "fulfilled"
         ? (Array.isArray(featurePrioritizationRes.value) ? featurePrioritizationRes.value : (featurePrioritizationRes.value?.skills ?? []))
         : [];
-      const all = [...featureRows, ...storyRows, ...storyRefinementRows, ...storySlicingRows, ...featureRefinementRows, ...featurePrioritizationRows];
+      const competitorAnalysisRows = competitorAnalysisRes.status === "fulfilled"
+        ? (Array.isArray(competitorAnalysisRes.value) ? competitorAnalysisRes.value : (competitorAnalysisRes.value?.skills ?? []))
+        : [];
+      const all = [...featureRows, ...storyRows, ...storyRefinementRows, ...storySlicingRows, ...featureRefinementRows, ...featurePrioritizationRows, ...competitorAnalysisRows];
       setSkills(all);
       const preferred = all.find((s) => s.is_active) ?? all[0] ?? null;
       setSelectedId(preferred?.id ?? null);
@@ -507,8 +557,7 @@ export default function Skills() {
         <div>
           <h2 className="text-3xl font-headline font-bold tracking-tight text-on-surface mb-1">Skills</h2>
           <p className="text-sm text-on-surface-variant max-w-3xl">
-            Skills define how ProductOS agents behave. Each agent uses its corresponding active skill — Feature Generator,
-            Story Generator, Story Refiner, and Story Slicer. Configure instructions, required sections, and quality bar here.
+            Skills define how ProductOS agents behave. Each agent uses its corresponding active skill — Feature Generator, Feature Refiner, Feature Prioritizer, Story Generator, Story Refiner, Story Slicer, and Competitor Analysis. The Story Refinement skill is also used during Backlog Refinement analysis. Configure instructions, required sections, and quality bar here.
           </p>
         </div>
       </div>
@@ -531,7 +580,7 @@ export default function Skills() {
             </div>
 
             <div className="py-2">
-              {(["feature_spec", "story_spec", "story_refinement", "story_slicing", "feature_refinement", "feature_prioritization"]).map((type) => {
+              {(["feature_spec", "story_spec", "story_refinement", "story_slicing", "feature_refinement", "feature_prioritization", "competitor_analysis"]).map((type) => {
                 const typeCfg = SKILL_TYPE_CONFIG[type];
                 const typeSkills = skills.filter((s) => s.skill_type === type);
                 const itemsToShow = typeSkills.length > 0
@@ -653,7 +702,9 @@ export default function Skills() {
                           ? "Changes here affect the Feature Refiner agent."
                           : draft.skill_type === "feature_prioritization"
                             ? "Changes here affect the Feature Prioritizer agent."
-                            : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
+                            : draft.skill_type === "competitor_analysis"
+                              ? "Changes here affect the Competitor Analysis agent."
+                              : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
                 </p>
               </div>
               <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shrink-0 ${cfg.badgeCls}`}>

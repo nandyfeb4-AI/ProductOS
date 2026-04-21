@@ -15,12 +15,18 @@ class JobRepository:
         *,
         job_type: str,
         input_payload: dict[str, Any],
+        project_id: str | None = None,
+        agent_key: str | None = None,
+        agent_label: str | None = None,
         progress_stage: Optional[str] = None,
         progress_message: Optional[str] = None,
     ) -> dict[str, Any]:
         query = """
             insert into generation_jobs (
                 job_type,
+                project_id,
+                agent_key,
+                agent_label,
                 status,
                 progress_stage,
                 progress_message,
@@ -28,6 +34,9 @@ class JobRepository:
             )
             values (
                 %(job_type)s,
+                %(project_id)s::uuid,
+                %(agent_key)s,
+                %(agent_label)s,
                 'queued',
                 %(progress_stage)s,
                 %(progress_message)s,
@@ -36,6 +45,9 @@ class JobRepository:
             returning
                 id,
                 job_type,
+                project_id,
+                agent_key,
+                agent_label,
                 status,
                 progress_stage,
                 progress_message,
@@ -48,6 +60,9 @@ class JobRepository:
         """
         params = {
             "job_type": job_type,
+            "project_id": project_id,
+            "agent_key": agent_key,
+            "agent_label": agent_label,
             "progress_stage": progress_stage,
             "progress_message": progress_message,
             "input_payload": json.dumps(input_payload),
@@ -59,6 +74,9 @@ class JobRepository:
             select
                 id,
                 job_type,
+                project_id,
+                agent_key,
+                agent_label,
                 status,
                 progress_stage,
                 progress_message,
@@ -73,6 +91,47 @@ class JobRepository:
             limit 1
         """
         return self._fetch_one(query, {"job_id": job_id})
+
+    def list_jobs(
+        self,
+        *,
+        project_id: str | None = None,
+        agent_key: str | None = None,
+        status: str | None = None,
+        agent_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        query = """
+            select
+                id,
+                job_type,
+                project_id,
+                agent_key,
+                agent_label,
+                status,
+                progress_stage,
+                progress_message,
+                input_payload,
+                result_payload,
+                error_message,
+                created_at,
+                updated_at,
+                completed_at
+            from generation_jobs
+            where (%(project_id)s::uuid is null or project_id = %(project_id)s::uuid)
+              and (%(agent_key)s::text is null or agent_key = %(agent_key)s::text)
+              and (%(status)s::text is null or status = %(status)s::text)
+              and (%(agent_only)s::boolean = false or agent_key is not null)
+            order by updated_at desc, created_at desc
+        """
+        return self._fetch_all(
+            query,
+            {
+                "project_id": project_id,
+                "agent_key": agent_key,
+                "status": status,
+                "agent_only": agent_only,
+            },
+        )
 
     def update_job(
         self,
@@ -98,6 +157,9 @@ class JobRepository:
             returning
                 id,
                 job_type,
+                project_id,
+                agent_key,
+                agent_label,
                 status,
                 progress_stage,
                 progress_message,
@@ -131,5 +193,14 @@ class JobRepository:
                 with connection.cursor() as cursor:
                     cursor.execute(query, params)
                     return cursor.fetchone()
+        except HTTPException:
+            raise
+
+    def _fetch_all(self, query: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        try:
+            with get_db_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(query, params)
+                    return list(cursor.fetchall())
         except HTTPException:
             raise
