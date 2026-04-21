@@ -23,6 +23,7 @@ class ProjectFeatureBase(BaseModel):
     title: str
     summary: str = ""
     body: dict[str, Any] = Field(default_factory=dict)
+    prioritization: dict[str, Any] = Field(default_factory=dict)
     jira_issue_key: Optional[str] = None
     jira_issue_url: Optional[str] = None
     jira_issue_type: Optional[str] = None
@@ -47,6 +48,7 @@ class ProjectFeatureUpdateRequest(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     body: Optional[dict[str, Any]] = None
+    prioritization: Optional[dict[str, Any]] = None
     jira_issue_key: Optional[str] = None
     jira_issue_url: Optional[str] = None
     jira_issue_type: Optional[str] = None
@@ -64,6 +66,7 @@ class ProjectFeatureSummary(BaseModel):
     skill_name: Optional[str] = None
     title: str
     summary: str = ""
+    prioritization: dict[str, Any] = Field(default_factory=dict)
     jira_issue_key: Optional[str] = None
     jira_issue_url: Optional[str] = None
     jira_issue_type: Optional[str] = None
@@ -77,6 +80,7 @@ class ProjectFeatureResponse(ProjectFeatureSummary):
     constraints: list[str] = Field(default_factory=list)
     supporting_context: list[str] = Field(default_factory=list)
     body: dict[str, Any] = Field(default_factory=dict)
+    prioritization: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectFeatureListResponse(BaseModel):

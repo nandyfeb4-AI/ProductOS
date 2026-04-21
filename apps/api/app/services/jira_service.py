@@ -12,6 +12,8 @@ from app.core.config import settings
 from app.repositories.connector_repository import ConnectorRepository
 from app.schemas.agents import FeatureDraft
 from app.schemas.artifacts import GeneratedArtifact
+from app.schemas.backlog_refinement import BacklogStoryDraft, JiraBacklogStorySource
+from app.schemas.feature_hardening import JiraFeatureSource
 from app.schemas.jira_connector import (
     JiraConnectRequest,
     JiraConnectResponse,
@@ -230,6 +232,42 @@ class JiraService:
             ]
         )
 
+    def list_project_features(self, project_key: str) -> list[JiraFeatureSource]:
+        session = self._require_session()
+        body = self._post(
+            session,
+            "/rest/api/3/search/jql",
+            {
+                "jql": f"project = {project_key} AND issuetype = Epic ORDER BY priority DESC, updated DESC",
+                "fields": ["summary", "description", "status", "issuetype", "priority"],
+                "maxResults": 100,
+            },
+        )
+        issues = body.get("issues", []) if isinstance(body, dict) else []
+        return [self._issue_to_source_feature(session, project_key, issue) for issue in issues if isinstance(issue, dict)]
+
+    def list_project_backlog_stories(self, project_key: str) -> list[JiraBacklogStorySource]:
+        session = self._require_session()
+        story_points_field = self._discover_story_points_field(session)
+        fields = ["summary", "description", "status", "issuetype", "priority", "parent"]
+        if story_points_field:
+            fields.append(story_points_field)
+        body = self._post(
+            session,
+            "/rest/api/3/search/jql",
+            {
+                "jql": f"project = {project_key} AND issuetype in (Story, Task) ORDER BY priority DESC, updated DESC",
+                "fields": fields,
+                "maxResults": 200,
+            },
+        )
+        issues = body.get("issues", []) if isinstance(body, dict) else []
+        return [
+            self._issue_to_backlog_story(session, project_key, issue, story_points_field)
+            for issue in issues
+            if isinstance(issue, dict)
+        ]
+
     def export(self, payload: JiraExportRequest) -> JiraExportResponse:
         session = self._require_session()
         issue_types = self._get_issue_type_map(session, payload.project_key)
@@ -312,6 +350,124 @@ class JiraService:
             issue_type=str(issue_type["name"]),
         )
 
+    def update_feature_issue(self, project_key: str, issue_key: str, feature: FeatureDraft) -> dict[str, str | bool]:
+        session = self._require_session()
+        issue_types = self._get_issue_type_map(session, project_key)
+        issue_type = issue_types.get("Epic") or issue_types.get("Task")
+        feature_artifact = self._feature_to_generated_artifact(feature)
+        fields: dict[str, Any] = {
+            "summary": feature_artifact.title,
+            "description": self._artifact_to_adf(feature_artifact),
+        }
+        epic_name_field = self._discover_epic_name_field(session) if issue_type and issue_type["name"].lower() == "epic" else None
+        if epic_name_field:
+            fields[epic_name_field] = feature_artifact.title
+
+        try:
+            self._put(session, f"/rest/api/3/issue/{issue_key}", {"fields": fields})
+        except RuntimeError as exc:
+            if epic_name_field and epic_name_field in fields:
+                fallback_fields = dict(fields)
+                fallback_fields.pop(epic_name_field, None)
+                self._put(session, f"/rest/api/3/issue/{issue_key}", {"fields": fallback_fields})
+            else:
+                raise exc
+        return {
+            "issue_key": issue_key,
+            "issue_url": f"{session.base_url}/browse/{issue_key}",
+            "issue_type": str(issue_type["name"]) if issue_type else "Epic",
+            "updated": True,
+        }
+
+    def create_story_issue(
+        self,
+        project_key: str,
+        *,
+        parent_issue_key: str | None,
+        story: BacklogStoryDraft,
+    ) -> JiraBacklogStorySource:
+        session = self._require_session()
+        issue_types = self._get_issue_type_map(session, project_key)
+        child_issue_type = issue_types.get("Story") or issue_types.get("Task")
+        if child_issue_type is None:
+            raise RuntimeError("No Jira Story or Task issue type is available in this workspace.")
+
+        story_points_field = self._discover_story_points_field(session)
+        epic_link_field = self._discover_epic_link_field(session)
+        fields: dict[str, Any] = {
+            "project": {"key": project_key},
+            "summary": story.title,
+            "description": self._to_adf(story),
+            "issuetype": {"id": child_issue_type["id"]},
+        }
+        self._apply_reporter(fields, session)
+        if story_points_field:
+            fields[story_points_field] = int(story.story_points)
+        if parent_issue_key:
+            fields["parent"] = {"key": parent_issue_key}
+
+        try:
+            response = self._post(session, "/rest/api/3/issue", {"fields": fields})
+        except RuntimeError as exc:
+            if parent_issue_key and epic_link_field:
+                fallback_fields = dict(fields)
+                fallback_fields.pop("parent", None)
+                fallback_fields[epic_link_field] = parent_issue_key
+                response = self._post(session, "/rest/api/3/issue", {"fields": fallback_fields})
+            else:
+                raise exc
+
+        issue_key = str(response.get("key", ""))
+        issue = self._get(session, f"/rest/api/3/issue/{issue_key}?fields=summary,description,status,issuetype,priority,parent")
+        return self._issue_to_backlog_story(session, project_key, issue, story_points_field)
+
+    def update_story_issue(
+        self,
+        project_key: str,
+        issue_key: str,
+        story: BacklogStoryDraft,
+    ) -> JiraBacklogStorySource:
+        session = self._require_session()
+        story_points_field = self._discover_story_points_field(session)
+        fields: dict[str, Any] = {
+            "summary": story.title,
+            "description": self._to_adf(story),
+        }
+        if story_points_field:
+            fields[story_points_field] = int(story.story_points)
+        self._put(session, f"/rest/api/3/issue/{issue_key}", {"fields": fields})
+        issue = self._get(session, f"/rest/api/3/issue/{issue_key}?fields=summary,description,status,issuetype,priority,parent")
+        return self._issue_to_backlog_story(session, project_key, issue, story_points_field)
+
+    def mark_story_sliced(
+        self,
+        project_key: str,
+        source_story: JiraBacklogStorySource,
+        replacement_issue_keys: list[str],
+    ) -> JiraBacklogStorySource:
+        session = self._require_session()
+        story_points_field = self._discover_story_points_field(session)
+        summary = source_story.title if source_story.title.startswith("[Sliced]") else f"[Sliced] {source_story.title}"
+        note = (
+            f"Superseded by sliced stories: {', '.join(replacement_issue_keys)}."
+            if replacement_issue_keys
+            else "Superseded by sliced stories."
+        )
+        description_lines: list[str] = []
+        if source_story.description_text:
+            description_lines.append(source_story.description_text)
+        description_lines.append(note)
+        fields: dict[str, Any] = {
+            "summary": summary,
+            "description": self._paragraph_adf(description_lines),
+        }
+        self._put(session, f"/rest/api/3/issue/{source_story.issue_key}", {"fields": fields})
+        issue = self._get(
+            session,
+            f"/rest/api/3/issue/{source_story.issue_key}?fields=summary,description,status,issuetype,priority,parent",
+        )
+        return self._issue_to_backlog_story(session, project_key, issue, story_points_field)
+
     def _ensure_parent_issues(
         self,
         session: JiraSession,
@@ -365,6 +521,14 @@ class JiraService:
         fields = self._get(session, "/rest/api/3/field")
         for field in fields:
             if str(field.get("name", "")).lower() == "epic link":
+                return str(field.get("id"))
+        return None
+
+    def _discover_story_points_field(self, session: JiraSession) -> Optional[str]:
+        fields = self._get(session, "/rest/api/3/field")
+        candidates = {"story points", "story point estimate"}
+        for field in fields:
+            if str(field.get("name", "")).strip().lower() in candidates:
                 return str(field.get("id"))
         return None
 
@@ -485,6 +649,69 @@ class JiraService:
             summary=feature.summary,
             body=feature.body,
         )
+
+    def _issue_to_source_feature(self, session: JiraSession, project_key: str, issue: dict[str, Any]) -> JiraFeatureSource:
+        fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+        description_text = self._adf_to_text(fields.get("description"))
+        return JiraFeatureSource(
+            issue_key=str(issue.get("key", "")),
+            issue_url=f"{session.base_url}/browse/{issue.get('key', '')}",
+            project_key=project_key,
+            issue_type=str((fields.get("issuetype") or {}).get("name", "Epic")),
+            status_name=str((fields.get("status") or {}).get("name", "")).strip() or None,
+            priority_name=str((fields.get("priority") or {}).get("name", "")).strip() or None,
+            title=str(fields.get("summary", "")).strip(),
+            description_text=description_text,
+        )
+
+    def _issue_to_backlog_story(
+        self,
+        session: JiraSession,
+        project_key: str,
+        issue: dict[str, Any],
+        story_points_field: str | None,
+    ) -> JiraBacklogStorySource:
+        fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+        description_text = self._adf_to_text(fields.get("description"))
+        parent = fields.get("parent") if isinstance(fields.get("parent"), dict) else {}
+        raw_points = fields.get(story_points_field) if story_points_field else None
+        try:
+            story_points = float(raw_points) if raw_points is not None else None
+        except (TypeError, ValueError):
+            story_points = None
+        return JiraBacklogStorySource(
+            issue_key=str(issue.get("key", "")),
+            issue_url=f"{session.base_url}/browse/{issue.get('key', '')}",
+            project_key=project_key,
+            issue_type=str((fields.get("issuetype") or {}).get("name", "Story")),
+            status_name=str((fields.get("status") or {}).get("name", "")).strip() or None,
+            priority_name=str((fields.get("priority") or {}).get("name", "")).strip() or None,
+            title=str(fields.get("summary", "")).strip(),
+            description_text=description_text,
+            parent_issue_key=str(parent.get("key", "")).strip() or None,
+            parent_title=str((parent.get("fields") or {}).get("summary", "")).strip() or None,
+            story_points=story_points,
+        )
+
+    def _adf_to_text(self, value: Any) -> str:
+        parts: list[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                if node.get("type") == "text" and node.get("text"):
+                    parts.append(str(node["text"]))
+                for item in node.get("content", []) if isinstance(node.get("content"), list) else []:
+                    walk(item)
+                if node.get("type") in {"paragraph", "heading", "listItem"}:
+                    parts.append("\n")
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(value)
+        text = "".join(parts)
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return "\n".join(lines)
 
     def _paragraph_adf(self, lines: list[str]) -> dict[str, Any]:
         content = []
@@ -620,6 +847,11 @@ class JiraService:
             return self._oauth_post(session, path, body)
         return self._token_post(session.base_url, session.email or "", session.access_token, path, body)
 
+    def _put(self, session: JiraSession, path: str, body: dict[str, Any]) -> Any:
+        if session.cloud_id:
+            return self._oauth_put(session, path, body)
+        return self._token_put(session.base_url, session.email or "", session.access_token, path, body)
+
     def _oauth_get(self, session: JiraSession, path: str) -> Any:
         url = f"https://api.atlassian.com/ex/jira/{session.cloud_id}{path}"
         try:
@@ -704,6 +936,46 @@ class JiraService:
                 )
             raise
 
+    def _oauth_put(self, session: JiraSession, path: str, body: dict[str, Any]) -> Any:
+        url = f"https://api.atlassian.com/ex/jira/{session.cloud_id}{path}"
+        headers = {
+            "Authorization": f"Bearer {session.access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        try:
+            return self._http_put(url, headers=headers, json=body)
+        except httpx.ConnectError:
+            if not settings.is_development:
+                raise
+            try:
+                return self._http_put(url, headers=headers, json=body, verify=False)
+            except RuntimeError as exc:
+                if self._is_unauthorized(exc) and self._maybe_refresh_oauth_session(session):
+                    return self._http_put(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {session.access_token}",
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                        json=body,
+                        verify=False,
+                    )
+                raise
+        except RuntimeError as exc:
+            if self._is_unauthorized(exc) and self._maybe_refresh_oauth_session(session):
+                return self._http_put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {session.access_token}",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                )
+            raise
+
     def _is_unauthorized(self, exc: RuntimeError) -> bool:
         return "Jira API error 401" in str(exc)
 
@@ -764,6 +1036,19 @@ class JiraService:
                 raise
             return self._http_post(url, auth=(email, api_token), headers=headers, json=body, verify=False)
 
+    def _token_put(self, base_url: str, email: str, api_token: str, path: str, body: dict[str, Any]) -> Any:
+        url = f"{base_url}{path}"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        try:
+            return self._http_put(url, auth=(email, api_token), headers=headers, json=body)
+        except httpx.ConnectError:
+            if not settings.is_development:
+                raise
+            return self._http_put(url, auth=(email, api_token), headers=headers, json=body, verify=False)
+
     def _http_get(
         self,
         url: str,
@@ -791,6 +1076,23 @@ class JiraService:
         with httpx.Client(timeout=30.0, verify=client_verify) as client:
             response = client.post(url, headers=headers, auth=auth, json=json)
             self._raise_for_status_with_details(response)
+            return response.json()
+
+    def _http_put(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        auth: tuple[str, str] | None = None,
+        verify: str | bool | None = None,
+    ) -> Any:
+        client_verify = certifi.where() if verify is None else verify
+        with httpx.Client(timeout=30.0, verify=client_verify) as client:
+            response = client.put(url, headers=headers, auth=auth, json=json)
+            self._raise_for_status_with_details(response)
+            if not response.content:
+                return {}
             return response.json()
 
     def _raise_for_status_with_details(self, response: httpx.Response) -> None:

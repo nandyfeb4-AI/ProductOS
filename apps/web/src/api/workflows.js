@@ -1,9 +1,10 @@
 import { getJson, postJson, patchJson } from "./client";
 
 export const createWorkflow = (body) => postJson("/api/workflows", body);
-export const getWorkflows = (type = "workshop", projectId = null, workshopId = null) => {
+export const getWorkflows = (type = "workshop", projectId = null, workshopId = null, workflowDefinitionKey = null) => {
   const params = new URLSearchParams();
   if (type) params.set("workflow_type", type);
+  if (workflowDefinitionKey) params.set("workflow_definition_key", workflowDefinitionKey);
   if (projectId) params.set("project_id", projectId);
   if (workshopId) params.set("workshop_id", workshopId);
   const query = params.toString();
@@ -11,6 +12,14 @@ export const getWorkflows = (type = "workshop", projectId = null, workshopId = n
 };
 export const getWorkflow = (id) => getJson(`/api/workflows/${id}`);
 export const updateWorkflow = (id, body) => patchJson(`/api/workflows/${id}`, body);
+export const getFeatureHardeningSource = (projectKey) =>
+  getJson(`/api/workflows/feature-hardening/source?project_key=${encodeURIComponent(projectKey)}`);
+export const runFeatureHardening = (body) => postJson("/api/workflows/feature-hardening/run", body);
+export const publishFeatureHardening = (body) => postJson("/api/workflows/feature-hardening/publish", body);
+export const getBacklogRefinementSource = (projectId, projectKey) =>
+  getJson(`/api/workflows/backlog-refinement/source?project_id=${encodeURIComponent(projectId)}&project_key=${encodeURIComponent(projectKey)}`);
+export const analyzeBacklogRefinement = (body) => postJson("/api/workflows/backlog-refinement/analyze", body);
+export const executeBacklogRefinement = (body) => postJson("/api/workflows/backlog-refinement/execute", body);
 
 // ─── SessionStorage helpers ───────────────────────────────────────────────────
 
@@ -19,6 +28,7 @@ const WORKSHOP_ID_KEY  = "current_workshop_id";
 const WORKFLOW_STATUS_KEY = "current_workflow_status";
 const WORKFLOW_RESTORE_KEY      = "workflow_restore_pending";
 const WORKFLOW_RESTORE_STEP_KEY = "workflow_restore_step";
+const BACKLOG_REFINEMENT_RESTORE_KEY = "backlog_refinement_restore_pending";
 const FLOWBAR_ORDER = ["workshop", "validation", "shaping", "artifacts", "stories", "jira"];
 
 /** Keys that form the workflow state_payload, in pipeline order. */
@@ -66,6 +76,7 @@ export function clearWorkflowState() {
   PIPELINE_KEYS.forEach(key => sessionStorage.removeItem(key));
   sessionStorage.removeItem(WORKFLOW_RESTORE_KEY);
   sessionStorage.removeItem(WORKFLOW_RESTORE_STEP_KEY);
+  sessionStorage.removeItem(BACKLOG_REFINEMENT_RESTORE_KEY);
 }
 
 /**

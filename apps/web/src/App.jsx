@@ -15,12 +15,18 @@ import Projects                from "./pages/Projects";
 import ProjectDetail           from "./pages/ProjectDetail";
 import FeatureGeneratorAgent   from "./pages/FeatureGeneratorAgent";
 import StoryGeneratorAgent     from "./pages/StoryGeneratorAgent";
-import Skills                  from "./pages/Skills";
+import StoryRefinerAgent       from "./pages/StoryRefinerAgent";
+import StorySlicerAgent        from "./pages/StorySlicerAgent";
+import FeatureRefinerAgent     from "./pages/FeatureRefinerAgent";
+import FeaturePrioritizerAgent    from "./pages/FeaturePrioritizerAgent";
+import FeatureHardeningWorkflow    from "./pages/FeatureHardeningWorkflow";
+import BacklogRefinementWorkflow  from "./pages/BacklogRefinementWorkflow";
+import TeamCapacity               from "./pages/TeamCapacity";
+import Skills                    from "./pages/Skills";
 import Placeholder             from "./pages/Placeholder";
 
 // ─── Stable placeholder components (defined outside to keep references stable) ─
 const PlaceholderBacklog = () => <Placeholder title="Backlog" />;
-const PlaceholderTeam    = () => <Placeholder title="Team" />;
 const PlaceholderReports = () => <Placeholder title="Reports" />;
 
 const VIEWS = {
@@ -38,8 +44,14 @@ const VIEWS = {
   "project-detail":       ProjectDetail,
   "feature-generator":    FeatureGeneratorAgent,
   "story-generator":      StoryGeneratorAgent,
+  "story-refiner":        StoryRefinerAgent,
+  "story-slicer":         StorySlicerAgent,
+  "feature-refiner":      FeatureRefinerAgent,
+  "feature-prioritizer":  FeaturePrioritizerAgent,
+  "feature-hardening":       FeatureHardeningWorkflow,
+  "backlog-refinement":     BacklogRefinementWorkflow,
+  team:              TeamCapacity,
   backlog:           PlaceholderBacklog,
-  team:              PlaceholderTeam,
   reports:           PlaceholderReports,
 };
 
@@ -87,7 +99,7 @@ export default function App() {
   }
 
   // Guard: project-scoped views require an active project — redirect to projects if none
-  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator"]);
+  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement", "team"]);
   const resolvedView = (PROJECT_SCOPED_VIEWS.has(activeView) && !activeProject) ? "projects" : activeView;
   const ViewComponent = VIEWS[resolvedView] ?? VIEWS.dashboard;
 

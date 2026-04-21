@@ -13,6 +13,8 @@ class WorkflowRepository:
         self,
         *,
         workflow_type: str,
+        workflow_definition_key: str | None,
+        workflow_definition_label: str | None,
         project_id: str | None,
         workshop_id: str | None,
         title: Optional[str],
@@ -26,6 +28,8 @@ class WorkflowRepository:
         query = """
             insert into workflow_runs (
                 workflow_type,
+                workflow_definition_key,
+                workflow_definition_label,
                 project_id,
                 workshop_id,
                 title,
@@ -38,6 +42,8 @@ class WorkflowRepository:
             )
             values (
                 %(workflow_type)s,
+                %(workflow_definition_key)s,
+                %(workflow_definition_label)s,
                 %(project_id)s::uuid,
                 %(workshop_id)s::uuid,
                 %(title)s,
@@ -51,6 +57,8 @@ class WorkflowRepository:
             returning
                 id,
                 workflow_type,
+                workflow_definition_key,
+                workflow_definition_label,
                 project_id,
                 workshop_id,
                 title,
@@ -65,6 +73,8 @@ class WorkflowRepository:
         """
         params = {
             "workflow_type": workflow_type,
+            "workflow_definition_key": workflow_definition_key,
+            "workflow_definition_label": workflow_definition_label,
             "project_id": project_id,
             "workshop_id": workshop_id,
             "title": title,
@@ -80,6 +90,7 @@ class WorkflowRepository:
     def list_workflows(
         self,
         workflow_type: Optional[str] = None,
+        workflow_definition_key: Optional[str] = None,
         project_id: Optional[str] = None,
         workshop_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
@@ -87,6 +98,8 @@ class WorkflowRepository:
             select
                 id,
                 workflow_type,
+                workflow_definition_key,
+                workflow_definition_label,
                 project_id,
                 workshop_id,
                 title,
@@ -100,17 +113,28 @@ class WorkflowRepository:
                 updated_at
             from workflow_runs
             where (%(workflow_type)s::text is null or workflow_type = %(workflow_type)s::text)
+              and (%(workflow_definition_key)s::text is null or workflow_definition_key = %(workflow_definition_key)s::text)
               and (%(project_id)s::uuid is null or project_id = %(project_id)s::uuid)
               and (%(workshop_id)s::uuid is null or workshop_id = %(workshop_id)s::uuid)
             order by updated_at desc
         """
-        return self._fetch_all(query, {"workflow_type": workflow_type, "project_id": project_id, "workshop_id": workshop_id})
+        return self._fetch_all(
+            query,
+            {
+                "workflow_type": workflow_type,
+                "workflow_definition_key": workflow_definition_key,
+                "project_id": project_id,
+                "workshop_id": workshop_id,
+            },
+        )
 
     def get_workflow(self, workflow_id: str) -> Optional[dict[str, Any]]:
         query = """
             select
                 id,
                 workflow_type,
+                workflow_definition_key,
+                workflow_definition_label,
                 project_id,
                 workshop_id,
                 title,
@@ -132,6 +156,8 @@ class WorkflowRepository:
         self,
         workflow_id: str,
         *,
+        workflow_definition_key: str | None = None,
+        workflow_definition_label: str | None = None,
         project_id: str | None = None,
         workshop_id: str | None = None,
         title: Optional[str] = None,
@@ -147,6 +173,8 @@ class WorkflowRepository:
             set
                 project_id = coalesce(%(project_id)s::uuid, project_id),
                 workshop_id = coalesce(%(workshop_id)s::uuid, workshop_id),
+                workflow_definition_key = coalesce(%(workflow_definition_key)s, workflow_definition_key),
+                workflow_definition_label = coalesce(%(workflow_definition_label)s, workflow_definition_label),
                 title = coalesce(%(title)s, title),
                 current_step = coalesce(%(current_step)s, current_step),
                 status = coalesce(%(status)s, status),
@@ -158,6 +186,8 @@ class WorkflowRepository:
             returning
                 id,
                 workflow_type,
+                workflow_definition_key,
+                workflow_definition_label,
                 project_id,
                 workshop_id,
                 title,
@@ -172,6 +202,8 @@ class WorkflowRepository:
         """
         params = {
             "workflow_id": workflow_id,
+            "workflow_definition_key": workflow_definition_key,
+            "workflow_definition_label": workflow_definition_label,
             "project_id": project_id,
             "workshop_id": workshop_id,
             "title": title,

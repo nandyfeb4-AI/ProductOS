@@ -92,12 +92,14 @@ Async job support also exists for this agent so the UI can follow the same long-
 
 - Purpose: improve and strengthen an existing feature or epic
 - Inputs:
-  - feature
+  - persisted project feature
+  - later Jira epic
+  - later manual feature input
 - Outputs:
   - refined feature
 - Mode:
   - single initially
-  - bulk later
+  - bulk supported by backend contract
 - Trigger:
   - manual initially
   - event-based later
@@ -105,6 +107,70 @@ Async job support also exists for this agent so the UI can follow the same long-
   - yes
 - Notes:
   - This should improve scope, requirements, dependencies, and success metrics.
+
+#### Initial Contract
+
+Request:
+
+```json
+{
+  "project_id": "uuid",
+  "source_type": "project_feature",
+  "feature_ids": ["uuid"],
+  "refinement_goal": "Make this feature story-generation ready.",
+  "constraints": ["Do not change the business intent"],
+  "supporting_context": ["This feature maps to a Jira Epic"]
+}
+```
+
+Response:
+
+```json
+{
+  "results": [
+    {
+      "feature": {
+        "id": "uuid",
+        "project_id": "uuid",
+        "title": "string",
+        "summary": "string",
+        "body": {
+          "problem_statement": "string",
+          "user_segment": "string",
+          "proposed_solution": "string",
+          "user_value": "string",
+          "business_value": "string",
+          "functional_requirements": ["string"],
+          "non_functional_requirements": ["string"],
+          "dependencies": ["string"],
+          "success_metrics": ["string"],
+          "priority": "high|medium|low"
+        }
+      },
+      "evaluation": {
+        "problem_clarity_score": 4,
+        "solution_clarity_score": 4,
+        "requirement_completeness_score": 3,
+        "dependency_score": 3,
+        "success_metrics_score": 2,
+        "implementation_readiness_score": 3,
+        "overall_score": 3,
+        "needs_refinement": true,
+        "strengths": ["Strong problem framing"],
+        "gaps": ["Success metrics are too vague"],
+        "refinement_reasons": ["Requirements need more delivery detail"]
+      },
+      "refinement_summary": "Clarified requirements and added measurable success criteria."
+    }
+  ]
+}
+```
+
+Important v1 scope:
+- start with persisted `project_features`
+- refine the same feature, do not create a new one
+- backend contract supports one or many features
+- UI can start with single-select
 
 ### 3. Story Generator
 
@@ -123,13 +189,59 @@ Async job support also exists for this agent so the UI can follow the same long-
 - Notes:
   - This is the reusable form of story generation outside the guided workshop pipeline.
 
+#### Story Generation Scaling Strategy
+
+Story generation should remain bounded per run, even when the UI is async.
+
+Important principle:
+- async execution improves waiting and responsiveness
+- it does not remove model context limits or output-token limits
+
+Recommended operating model:
+- use `Story Generator` for a single feature at a time
+- generate an initial bounded batch of stories
+- default expectation should be roughly `3 to 5` meaningful stories for a normal feature
+- practical single-run ceiling should stay conservative, around `8` stories, unless the story shape becomes much smaller
+
+Why not allow unlimited single-run generation:
+- larger story batches increase the risk of truncated or malformed structured output
+- acceptance criteria, edge cases, and dependencies become weaker as output size grows
+- the model may over-decompose one feature into artificial or noisy stories
+- large strict-JSON outputs become more variable and less reliable
+
+Future-safe expansion model:
+- do not solve “more stories needed” by allowing very large one-shot generation
+- instead, support iterative bounded generation passes
+
+Preferred later flow:
+1. generate an initial story set
+2. let the PM review it
+3. allow follow-up generation such as:
+   - `Generate More Stories`
+   - `Generate Technical Stories`
+   - `Generate Edge-Case Stories`
+   - `Generate Rollout / Ops Stories`
+   - `Generate Missing Coverage`
+
+Later implementation direction:
+- persist each story-generation run with lineage to the source feature
+- include already-generated stories as context in future runs
+- instruct the model to avoid duplicates and generate only missing or complementary stories
+
+Product stance:
+- single-run story generation should stay quality-first and bounded
+- broader decomposition should happen through iterative expansion, not one oversized generation request
+
 ### 4. Story Refiner
 
 - Purpose: improve one or more stories
 - Inputs:
-  - story
-  - story set
+  - persisted project story
+  - persisted project story set
+  - later: Jira stories pulled into ProductOS
+  - later: manual story input
 - Outputs:
+  - evaluated story or story set
   - refined story or refined story set
 - Mode:
   - single
@@ -146,18 +258,71 @@ Async job support also exists for this agent so the UI can follow the same long-
     - improving acceptance criteria
     - identifying dependencies
     - surfacing edge cases
+  - It should evaluate quality first and then refine based on the gaps.
+
+#### Initial Contract
+
+Request:
+
+```json
+{
+  "project_id": "uuid",
+  "source_type": "project_story",
+  "story_ids": ["uuid", "uuid"],
+  "refinement_goal": "Make these stories sprint-ready for engineering grooming.",
+  "constraints": ["Do not change the original user intent"],
+  "supporting_context": ["This feature ships behind a flag"]
+}
+```
+
+Response:
+
+```json
+{
+  "results": [
+    {
+      "story": {
+        "id": "uuid",
+        "project_id": "uuid",
+        "title": "string",
+        "description": "string"
+      },
+      "evaluation": {
+        "clarity_score": 4,
+        "acceptance_criteria_score": 3,
+        "completeness_score": 4,
+        "edge_case_score": 2,
+        "dependency_score": 3,
+        "implementation_readiness_score": 3,
+        "overall_score": 3,
+        "needs_refinement": true,
+        "strengths": ["Clear user intent"],
+        "gaps": ["Missing rollout edge cases"],
+        "refinement_reasons": ["Acceptance criteria too vague"]
+      },
+      "refinement_summary": "Tightened scope and made acceptance criteria testable."
+    }
+  ]
+}
+```
+
+Important v1 scope:
+- start with persisted `project_stories`
+- support both single-story and bulk refinement
+- do not create net-new stories in this agent
+- do not silently push to Jira
 
 ### 5. Story Slicer
 
 - Purpose: split a large story or set of stories into smaller implementable stories
 - Inputs:
   - story
-  - story set
+  - later story set
 - Outputs:
   - smaller stories
 - Mode:
-  - single
-  - bulk
+  - single initially
+  - bulk later
 - Trigger:
   - manual initially
   - Jira status/event later
@@ -167,12 +332,56 @@ Async job support also exists for this agent so the UI can follow the same long-
   - This is different from re-slicing an entire feature.
   - It focuses on decomposition of selected stories.
 
+#### Initial Contract
+
+Request:
+
+```json
+{
+  "project_id": "uuid",
+  "source_type": "project_story",
+  "source_story_id": "uuid",
+  "target_story_count_hint": 3,
+  "constraints": ["Keep each child independently deliverable"],
+  "supporting_context": ["This work should remain sprint-sized"]
+}
+```
+
+Response:
+
+```json
+{
+  "source_story": {
+    "id": "uuid",
+    "project_id": "uuid",
+    "title": "Original story",
+    "status": "sliced"
+  },
+  "stories": [
+    {
+      "id": "uuid",
+      "project_id": "uuid",
+      "source_story_id": "uuid",
+      "title": "Child story 1",
+      "description": "string"
+    }
+  ],
+  "slicing_summary": "Split the original story into smaller implementation-ready child stories."
+}
+```
+
+Important v1 scope:
+- start with one persisted `project_story`
+- persist sliced child stories into `project_stories`
+- link each child story back to the original via `source_story_id`
+- keep the original story available and mark it as `sliced`
+- do not auto-delete or auto-sync anything
+
 ### 6. Prioritization Agent
 
-- Purpose: rank features or stories and explain the rationale
+- Purpose: rank persisted project features and explain the rationale
 - Inputs:
   - feature set
-  - story set
   - project context
 - Outputs:
   - prioritized list
@@ -184,8 +393,10 @@ Async job support also exists for this agent so the UI can follow the same long-
 - Review:
   - yes
 - Notes:
+  - Start as a feature-only agent, not a story prioritization agent.
+  - Default framework should be Impact vs Effort, expressed through a reusable skill.
   - This should not silently reorder Jira.
-  - It should generate recommendations first.
+  - It should generate recommendations first and persist them onto the feature records.
 
 ### 7. Roadmap Planner
 
@@ -306,3 +517,26 @@ Once the reusable agents are stable, ProductOS can later introduce a higher-leve
 - proposes next steps
 
 This orchestration layer should come after the individual agents are implemented and trusted.
+
+### Working Architecture Direction
+
+The likely shape of the system is:
+- `Task Agents`
+  - focused reusable capabilities such as `Feature Generator`, `Story Generator`, `Story Refiner`, and `Story Slicer`
+- `PM Workflows`
+  - recurring multi-step PM routines such as backlog refinement, feature-to-delivery handoff, release preparation, and roadmap planning
+- `PM Orchestrator`
+  - a higher-level coordinating agent that identifies which PM workflow applies and sequences the relevant task agents
+
+Example later workflow:
+- `Backlog Refinement Workflow`
+  - assess a selected backlog set
+  - run `Story Refiner` where quality is weak
+  - run `Story Slicer` where stories are too large
+  - return a cleaned review set
+  - later sync approved changes back to Jira
+
+Important caveat:
+- this is a directional architecture note, not a locked implementation plan
+- it must be revisited after a few more agents are built and used
+- we should validate the actual PM usage patterns before hardening this into a formal orchestration system

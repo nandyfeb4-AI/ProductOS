@@ -11,6 +11,7 @@ class ProjectStoryBase(BaseModel):
     project_id: UUID
     source_type: str = "feature"
     source_feature_id: Optional[UUID] = None
+    source_story_id: Optional[UUID] = None
     status: str = "draft"
     generator_type: str = "story_generator"
     skill_id: Optional[UUID] = None
@@ -37,6 +38,7 @@ class ProjectStoryCreateRequest(ProjectStoryBase):
 class ProjectStoryUpdateRequest(BaseModel):
     source_type: Optional[str] = None
     source_feature_id: Optional[UUID] = None
+    source_story_id: Optional[UUID] = None
     status: Optional[str] = None
     generator_type: Optional[str] = None
     skill_id: Optional[UUID] = None
@@ -61,6 +63,7 @@ class ProjectStorySummary(BaseModel):
     project_id: UUID
     source_type: str
     source_feature_id: Optional[UUID] = None
+    source_story_id: Optional[UUID] = None
     status: str
     generator_type: str
     skill_id: Optional[UUID] = None

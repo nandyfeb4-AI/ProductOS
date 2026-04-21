@@ -53,6 +53,9 @@ const FEATURE_RESULT_CACHE_KEY   = "feature_generator_result_v1";
 const FEATURE_RESULT_RESTORE_KEY = "feature_generator_restore_pending";
 const FEATURE_OPEN_ID_KEY        = "feature_generator_open_id";
 const STORY_SOURCE_FEATURE_KEY   = "story_generator_source_feature_id";
+const STORY_SLICER_SOURCE_KEY    = "story_slicer_source_story_id";
+const FEATURE_REFINER_SOURCE_KEY      = "feature_refiner_source_feature_id";
+const FEATURE_PRIORITIZER_SOURCE_KEY  = "feature_prioritizer_source_feature_id";
 
 const FEATURE_STATUS = {
   generated: { label: "Generated", badge: "bg-violet-50 text-violet-600 border-violet-100" },
@@ -376,22 +379,27 @@ function OverviewTab({ project, onNewWorkshop, featureCount, storyCount, onTabCh
 
   useEffect(() => {
     let cancelled = false;
-    Promise.allSettled([
-      getWorkshops(project.id),
-      getProjectFeatures(project.id),
-    ]).then(([wsRes, featRes]) => {
-      if (cancelled) return;
-      const workshops = wsRes.status === "fulfilled"
-        ? (Array.isArray(wsRes.value) ? wsRes.value : (wsRes.value?.workshops ?? []))
-            .map((w) => ({ id: w.id, title: w.title || "Untitled Workshop", subtitle: `Workshop · ${relativeTime(w.updated_at) ?? "recently"}`, icon: "groups" }))
-        : [];
-      const features = featRes.status === "fulfilled"
-        ? (Array.isArray(featRes.value) ? featRes.value : (featRes.value?.features ?? []))
-            .map((f) => ({ id: `f-${f.id ?? f.feature_id}`, title: f.title || "Untitled Feature", subtitle: `Feature · ${relativeTime(f.updated_at) ?? "recently"}`, icon: "auto_awesome" }))
-        : [];
-      if (!cancelled) setRecentActivity([...workshops, ...features].slice(0, 4));
-    });
-    return () => { cancelled = true; };
+    const timer = window.setTimeout(() => {
+      Promise.allSettled([
+        getWorkshops(project.id),
+        getProjectFeatures(project.id),
+      ]).then(([wsRes, featRes]) => {
+        if (cancelled) return;
+        const workshops = wsRes.status === "fulfilled"
+          ? (Array.isArray(wsRes.value) ? wsRes.value : (wsRes.value?.workshops ?? []))
+              .map((w) => ({ id: w.id, title: w.title || "Untitled Workshop", subtitle: `Workshop · ${relativeTime(w.updated_at) ?? "recently"}`, icon: "groups" }))
+          : [];
+        const features = featRes.status === "fulfilled"
+          ? (Array.isArray(featRes.value) ? featRes.value : (featRes.value?.features ?? []))
+              .map((f) => ({ id: `f-${f.id ?? f.feature_id}`, title: f.title || "Untitled Feature", subtitle: `Feature · ${relativeTime(f.updated_at) ?? "recently"}`, icon: "auto_awesome" }))
+          : [];
+        if (!cancelled) setRecentActivity([...workshops, ...features].slice(0, 4));
+      });
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleRunFeatureGenerator() {
@@ -580,7 +588,7 @@ function OverviewTab({ project, onNewWorkshop, featureCount, storyCount, onTabCh
 }
 
 // ─── Feature card ────────────────────────────────────────────────────────────
-function FeatureCard({ feature, onOpen, onGenerateStories }) {
+function FeatureCard({ feature, onOpen, onGenerateStories, onRefine, onPrioritize }) {
   const statusCfg = FEATURE_STATUS[feature.status] ?? FEATURE_STATUS.generated;
   const sourceLabel = SOURCE_TYPE_LABEL[feature.source_type] ?? feature.source_type ?? "—";
   const updated = relativeTime(feature.updated_at);
@@ -659,6 +667,20 @@ function FeatureCard({ feature, onOpen, onGenerateStories }) {
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-outline mt-auto">
           <button
+            onClick={(e) => { e.stopPropagation(); onPrioritize?.(feature); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-100 hover:bg-orange-100 transition-all"
+          >
+            <span className="material-symbols-outlined text-[13px]">sort</span>
+            Prioritize
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onRefine?.(feature); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 transition-all"
+          >
+            <span className="material-symbols-outlined text-[13px]">auto_fix_high</span>
+            Refine
+          </button>
+          <button
             onClick={(e) => { e.stopPropagation(); onGenerateStories(feature); }}
             className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 transition-all"
           >
@@ -716,6 +738,18 @@ function FeaturesTab({ project, onNavigate, onCountUpdate }) {
     const id = feature.id ?? feature.feature_id;
     try { sessionStorage.setItem(STORY_SOURCE_FEATURE_KEY, id); } catch {}
     onNavigate?.("story-generator", project);
+  }
+
+  function handleRefineFeature(feature) {
+    const id = feature.id ?? feature.feature_id;
+    try { sessionStorage.setItem(FEATURE_REFINER_SOURCE_KEY, id); } catch {}
+    onNavigate?.("feature-refiner", project);
+  }
+
+  function handlePrioritizeFeature(feature) {
+    const id = feature.id ?? feature.feature_id;
+    try { sessionStorage.setItem(FEATURE_PRIORITIZER_SOURCE_KEY, id); } catch {}
+    onNavigate?.("feature-prioritizer", project);
   }
 
   function handleRunAgent() {
@@ -790,7 +824,7 @@ function FeaturesTab({ project, onNavigate, onCountUpdate }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {features.map((f) => (
-            <FeatureCard key={f.id ?? f.feature_id} feature={f} onOpen={handleOpenFeature} onGenerateStories={handleGenerateStories} />
+            <FeatureCard key={f.id ?? f.feature_id} feature={f} onOpen={handleOpenFeature} onGenerateStories={handleGenerateStories} onRefine={handleRefineFeature} onPrioritize={handlePrioritizeFeature} />
           ))}
         </div>
       )}
@@ -829,6 +863,12 @@ function StoriesTab({ project, onNavigate, onCountUpdate }) {
 
   function handleRunAgent() {
     onNavigate?.("story-generator", project);
+  }
+
+  function handleSliceStory(story) {
+    const id = story.id ?? story.story_id;
+    try { sessionStorage.setItem(STORY_SLICER_SOURCE_KEY, id); } catch {}
+    onNavigate?.("story-slicer", project);
   }
 
   if (loading) return (
@@ -953,6 +993,22 @@ function StoriesTab({ project, onNavigate, onCountUpdate }) {
                     <p className="text-[11px] text-on-surface-variant">{updated}</p>
                   )}
                 </div>
+                <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-1 border-t border-outline mt-auto">
+                  {story.status === "sliced" ? (
+                    <span className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                      <span className="material-symbols-outlined text-[11px]">call_split</span>
+                      Sliced
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleSliceStory(story)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-[13px]">call_split</span>
+                      Slice
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -973,6 +1029,7 @@ const AGENT_CATALOG = [
     bg:          "bg-violet-50 border-violet-100",
     stripe:      "from-violet-400 via-violet-300 to-primary",
     skillType:   "feature_spec",
+    btnCls:      "bg-gradient-to-r from-violet-600 to-violet-700 hover:from-violet-500 hover:to-violet-600 shadow-violet-500/20",
   },
   {
     id:          "story-generator",
@@ -983,6 +1040,51 @@ const AGENT_CATALOG = [
     bg:          "bg-emerald-50 border-emerald-100",
     stripe:      "from-emerald-400 via-emerald-300 to-green-300",
     skillType:   "story_spec",
+    btnCls:      "bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-emerald-500/20",
+  },
+  {
+    id:          "story-refiner",
+    icon:        "auto_fix_high",
+    name:        "Story Refiner",
+    description: "Evaluate and refine persisted project stories — improve clarity, testability, and acceptance criteria using the active Story Refinement Skill.",
+    color:       "text-primary",
+    bg:          "bg-blue-50 border-blue-100",
+    stripe:      "from-primary via-blue-400 to-blue-300",
+    skillType:   "story_refinement",
+    btnCls:      "bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 shadow-primary/20",
+  },
+  {
+    id:          "story-slicer",
+    icon:        "call_split",
+    name:        "Story Slicer",
+    description: "Decompose a large persisted story into smaller, independently deliverable child stories using the active Story Slicing Skill.",
+    color:       "text-amber-600",
+    bg:          "bg-amber-50 border-amber-100",
+    stripe:      "from-amber-400 via-amber-300 to-yellow-300",
+    skillType:   "story_slicing",
+    btnCls:      "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 shadow-amber-500/20",
+  },
+  {
+    id:          "feature-refiner",
+    icon:        "auto_fix_high",
+    name:        "Feature Refiner",
+    description: "Evaluate and refine a persisted project feature — improve clarity, completeness, and success metrics using the active Feature Refinement Skill.",
+    color:       "text-indigo-600",
+    bg:          "bg-indigo-50 border-indigo-100",
+    stripe:      "from-indigo-400 via-indigo-300 to-violet-300",
+    skillType:   "feature_refinement",
+    btnCls:      "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-indigo-500/20",
+  },
+  {
+    id:          "feature-prioritizer",
+    icon:        "sort",
+    name:        "Feature Prioritizer",
+    description: "Rank persisted project features using an impact-vs-effort framework — score, bucket, and recommend priority order using the active Feature Prioritization Skill.",
+    color:       "text-orange-600",
+    bg:          "bg-orange-50 border-orange-100",
+    stripe:      "from-orange-400 via-orange-300 to-amber-300",
+    skillType:   "feature_prioritization",
+    btnCls:      "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 shadow-orange-500/20",
   },
 ];
 
@@ -1061,12 +1163,7 @@ function AgentsTab({ project, onNavigate }) {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleRunAgent(agent.id); }}
-                  className={[
-                    "flex items-center gap-2 px-4 py-2 text-white text-sm font-bold rounded-xl transition-all shadow-sm w-fit",
-                    agent.id === "story-generator"
-                      ? "bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-emerald-500/20"
-                      : "bg-gradient-to-r from-violet-600 to-violet-700 hover:from-violet-500 hover:to-violet-600 shadow-violet-500/20",
-                  ].join(" ")}
+                  className={`flex items-center gap-2 px-4 py-2 text-white text-sm font-bold rounded-xl transition-all shadow-sm w-fit ${agent.btnCls}`}
                 >
                   <span className="material-symbols-outlined text-[15px]">play_arrow</span>
                   Run Agent
@@ -1236,6 +1333,8 @@ export default function ProjectDetail({ project, onNavigate }) {
             projectId={project.id}
             embedded={true}
             onNewWorkshop={handleNewWorkshop}
+            onNewFeatureHardening={() => onNavigate?.("feature-hardening", project)}
+            onNewBacklogRefinement={() => onNavigate?.("backlog-refinement", project)}
           />
         )}
 

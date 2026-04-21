@@ -7,6 +7,7 @@ from app.schemas.projects import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
+from app.schemas.team import ProjectTeamResponse
 from app.services.pipeline_service import PipelineService
 
 router = APIRouter()
@@ -43,3 +44,11 @@ async def update_project(
     service: PipelineService = Depends(get_pipeline_service),
 ) -> ProjectResponse:
     return service.update_project(project_id, payload)
+
+
+@router.get("/{project_id}/team", response_model=ProjectTeamResponse)
+async def get_project_team(
+    project_id: str,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> ProjectTeamResponse:
+    return service.get_project_team(project_id)

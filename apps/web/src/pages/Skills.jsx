@@ -72,6 +72,140 @@ const DEFAULT_STORY_SPEC_SKILL = {
   ],
 };
 
+const DEFAULT_STORY_REFINEMENT_SKILL = {
+  name: "Default Story Refinement Skill",
+  slug: "default-story-refinement-skill",
+  skill_type: "story_refinement",
+  description: "Default ProductOS skill for evaluating and refining existing user stories.",
+  is_active: true,
+  instructions:
+    "Evaluate each provided user story against the quality bar, then produce a refined version. Maintain the original intent while improving clarity, testability of acceptance criteria, and independent deliverability. Return both an evaluation and a refined story for each input.",
+  required_sections: [
+    "user_story",
+    "acceptance_criteria",
+    "evaluation_score",
+    "gaps",
+    "strengths",
+    "refinement_summary",
+  ],
+  quality_bar: [
+    "User story must follow As a / I want / So that format",
+    "Acceptance criteria must be specific and testable",
+    "Each story should be independently deliverable",
+    "Surface gaps that were present in the original",
+    "Document strengths that should be preserved",
+  ],
+  integration_notes: [
+    "Refined stories should update the persisted project story record",
+    "Evaluation scores and gaps should be surfaced in the UI result view",
+    "Story Slicer should be able to operate cleanly on refined stories",
+  ],
+};
+
+const DEFAULT_STORY_SLICING_SKILL = {
+  name: "Default Story Slicing Skill",
+  slug: "default-story-slicing-skill",
+  skill_type: "story_slicing",
+  description: "Default ProductOS skill for decomposing a large user story into smaller, independently deliverable child stories.",
+  is_active: true,
+  instructions:
+    "Take the provided user story and decompose it into smaller, independently deliverable child stories. Each child story should retain the spirit of the original but be scoped to a single, shippable unit of work. Maintain the As a / I want / So that format for each child. Return a slicing summary describing the decomposition approach.",
+  required_sections: [
+    "title",
+    "user_story",
+    "as_a",
+    "i_want",
+    "so_that",
+    "description",
+    "acceptance_criteria",
+    "edge_cases",
+    "dependencies",
+    "priority",
+  ],
+  quality_bar: [
+    "Each child story must be independently deliverable",
+    "Child stories must collectively cover the scope of the original",
+    "Each child story must include title, as_a, i_want, so_that, and acceptance_criteria",
+    "Acceptance criteria for each child must be specific and testable",
+    "Avoid over-slicing — prefer meaningful units over micro-tasks",
+  ],
+  integration_notes: [
+    "Each child story must conform to the standard project story shape used by Story Generator and Story Refiner",
+    "Sliced child stories are persisted as new project story records linked via source_story_id",
+    "The original story is marked as sliced, not deleted",
+  ],
+};
+
+const DEFAULT_FEATURE_REFINEMENT_SKILL = {
+  name: "Default Feature Refinement Skill",
+  slug: "default-feature-refinement-skill",
+  skill_type: "feature_refinement",
+  description: "Default ProductOS skill for evaluating and refining existing feature specs.",
+  is_active: true,
+  instructions:
+    "Evaluate each feature first, then refine only the parts that need improvement. Preserve the original intent while improving clarity, scope, requirements, dependencies, and success metrics.",
+  required_sections: [
+    "problem_statement",
+    "user_segment",
+    "proposed_solution",
+    "user_value",
+    "business_value",
+    "functional_requirements",
+    "non_functional_requirements",
+    "dependencies",
+    "success_metrics",
+    "priority",
+  ],
+  quality_bar: [
+    "Preserve the original problem and business intent",
+    "Make requirements actionable for downstream story generation",
+    "Clarify dependencies and non-functional requirements where needed",
+    "Strengthen success metrics so the feature is measurable",
+    "Do not turn the output into a PRD",
+  ],
+  integration_notes: [
+    "Refined features should remain compatible with Jira Epic export",
+    "Refined output should improve Story Generator input quality",
+    "This agent should improve the same feature, not create net-new feature records",
+  ],
+};
+
+const DEFAULT_FEATURE_PRIORITIZATION_SKILL = {
+  name: "Default Feature Prioritization Skill",
+  slug: "default-feature-prioritization-skill",
+  skill_type: "feature_prioritization",
+  description: "Default ProductOS skill for ranking project features using an impact-versus-effort lens with PM-style tradeoff reasoning.",
+  is_active: true,
+  instructions:
+    "Prioritize the provided features using Impact vs Effort as the default framework. Balance user value, business value, urgency, and strategic alignment against delivery effort and confidence. Recommend a rank order that a PM could defend in planning review.",
+  required_sections: [
+    "framework",
+    "impact_score",
+    "effort_score",
+    "strategic_alignment_score",
+    "urgency_score",
+    "confidence_score",
+    "overall_priority_score",
+    "recommended_rank",
+    "priority_bucket",
+    "rationale",
+    "tradeoffs",
+    "recommendation",
+  ],
+  quality_bar: [
+    "Use a consistent framework across all selected features",
+    "Explain why items move up or down rather than only assigning scores",
+    "Call out when a feature needs more refinement before confident prioritization",
+    "Avoid recommending everything as high priority",
+    "Tie recommendations back to user and business value",
+  ],
+  integration_notes: [
+    "Prioritization should persist onto the same project feature records",
+    "Results should help PMs decide what to refine, generate stories for, or export next",
+    "This agent recommends priority order; it does not reorder Jira automatically",
+  ],
+};
+
 const SKILL_TYPE_CONFIG = {
   feature_spec: {
     label: "Feature Spec",
@@ -100,6 +234,62 @@ const SKILL_TYPE_CONFIG = {
     sectionIconCls: "text-emerald-500",
     saveBtnCls: "from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-emerald-500/20",
     inputFocusCls: "focus:border-emerald-500 focus:ring-emerald-500/10",
+  },
+  story_refinement: {
+    label: "Story Refinement",
+    icon: "auto_fix_high",
+    defaultSkill: DEFAULT_STORY_REFINEMENT_SKILL,
+    badgeCls: "bg-blue-50 text-blue-600 border-blue-100",
+    ringCls: "ring-blue-500/40",
+    stripeCls: "bg-blue-500",
+    iconBgActiveCls: "bg-blue-500",
+    formBgCls: "from-blue-50/60",
+    cardActiveCls: "border-blue-200 bg-blue-50/60",
+    sectionIconCls: "text-blue-500",
+    saveBtnCls: "from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 shadow-blue-500/20",
+    inputFocusCls: "focus:border-blue-500 focus:ring-blue-500/10",
+  },
+  story_slicing: {
+    label: "Story Slicing",
+    icon: "call_split",
+    defaultSkill: DEFAULT_STORY_SLICING_SKILL,
+    badgeCls: "bg-amber-50 text-amber-600 border-amber-100",
+    ringCls: "ring-amber-500/40",
+    stripeCls: "bg-amber-500",
+    iconBgActiveCls: "bg-amber-500",
+    formBgCls: "from-amber-50/60",
+    cardActiveCls: "border-amber-200 bg-amber-50/60",
+    sectionIconCls: "text-amber-500",
+    saveBtnCls: "from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 shadow-amber-500/20",
+    inputFocusCls: "focus:border-amber-500 focus:ring-amber-500/10",
+  },
+  feature_refinement: {
+    label: "Feature Refinement",
+    icon: "auto_fix_high",
+    defaultSkill: DEFAULT_FEATURE_REFINEMENT_SKILL,
+    badgeCls: "bg-indigo-50 text-indigo-600 border-indigo-100",
+    ringCls: "ring-indigo-500/40",
+    stripeCls: "bg-indigo-500",
+    iconBgActiveCls: "bg-indigo-500",
+    formBgCls: "from-indigo-50/60",
+    cardActiveCls: "border-indigo-200 bg-indigo-50/60",
+    sectionIconCls: "text-indigo-500",
+    saveBtnCls: "from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-indigo-500/20",
+    inputFocusCls: "focus:border-indigo-500 focus:ring-indigo-500/10",
+  },
+  feature_prioritization: {
+    label: "Feature Prioritization",
+    icon: "sort",
+    defaultSkill: DEFAULT_FEATURE_PRIORITIZATION_SKILL,
+    badgeCls: "bg-orange-50 text-orange-600 border-orange-100",
+    ringCls: "ring-orange-500/40",
+    stripeCls: "bg-orange-500",
+    iconBgActiveCls: "bg-orange-500",
+    formBgCls: "from-orange-50/60",
+    cardActiveCls: "border-orange-200 bg-orange-50/60",
+    sectionIconCls: "text-orange-500",
+    saveBtnCls: "from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 shadow-orange-500/20",
+    inputFocusCls: "focus:border-orange-500 focus:ring-orange-500/10",
   },
 };
 
@@ -223,9 +413,13 @@ export default function Skills() {
     setLoading(true);
     setError(null);
     try {
-      const [featureRes, storyRes] = await Promise.allSettled([
+      const [featureRes, storyRes, storyRefinementRes, storySlicingRes, featureRefinementRes, featurePrioritizationRes] = await Promise.allSettled([
         getSkills("feature_spec", null),
         getSkills("story_spec", null),
+        getSkills("story_refinement", null),
+        getSkills("story_slicing", null),
+        getSkills("feature_refinement", null),
+        getSkills("feature_prioritization", null),
       ]);
       const featureRows = featureRes.status === "fulfilled"
         ? (Array.isArray(featureRes.value) ? featureRes.value : (featureRes.value?.skills ?? []))
@@ -233,7 +427,19 @@ export default function Skills() {
       const storyRows = storyRes.status === "fulfilled"
         ? (Array.isArray(storyRes.value) ? storyRes.value : (storyRes.value?.skills ?? []))
         : [];
-      const all = [...featureRows, ...storyRows];
+      const storyRefinementRows = storyRefinementRes.status === "fulfilled"
+        ? (Array.isArray(storyRefinementRes.value) ? storyRefinementRes.value : (storyRefinementRes.value?.skills ?? []))
+        : [];
+      const storySlicingRows = storySlicingRes.status === "fulfilled"
+        ? (Array.isArray(storySlicingRes.value) ? storySlicingRes.value : (storySlicingRes.value?.skills ?? []))
+        : [];
+      const featureRefinementRows = featureRefinementRes.status === "fulfilled"
+        ? (Array.isArray(featureRefinementRes.value) ? featureRefinementRes.value : (featureRefinementRes.value?.skills ?? []))
+        : [];
+      const featurePrioritizationRows = featurePrioritizationRes.status === "fulfilled"
+        ? (Array.isArray(featurePrioritizationRes.value) ? featurePrioritizationRes.value : (featurePrioritizationRes.value?.skills ?? []))
+        : [];
+      const all = [...featureRows, ...storyRows, ...storyRefinementRows, ...storySlicingRows, ...featureRefinementRows, ...featurePrioritizationRows];
       setSkills(all);
       const preferred = all.find((s) => s.is_active) ?? all[0] ?? null;
       setSelectedId(preferred?.id ?? null);
@@ -301,9 +507,8 @@ export default function Skills() {
         <div>
           <h2 className="text-3xl font-headline font-bold tracking-tight text-on-surface mb-1">Skills</h2>
           <p className="text-sm text-on-surface-variant max-w-3xl">
-            Skills define how ProductOS agents behave. The Feature Generator uses the active Feature Spec skill,
-            and the Story Generator uses the active Story Spec skill. Configure each skill's instructions, required
-            sections, and quality bar here.
+            Skills define how ProductOS agents behave. Each agent uses its corresponding active skill — Feature Generator,
+            Story Generator, Story Refiner, and Story Slicer. Configure instructions, required sections, and quality bar here.
           </p>
         </div>
       </div>
@@ -326,7 +531,7 @@ export default function Skills() {
             </div>
 
             <div className="py-2">
-              {(["feature_spec", "story_spec"] ).map((type) => {
+              {(["feature_spec", "story_spec", "story_refinement", "story_slicing", "feature_refinement", "feature_prioritization"]).map((type) => {
                 const typeCfg = SKILL_TYPE_CONFIG[type];
                 const typeSkills = skills.filter((s) => s.skill_type === type);
                 const itemsToShow = typeSkills.length > 0
@@ -440,7 +645,15 @@ export default function Skills() {
                 <p className="text-sm text-on-surface-variant">
                   {draft.skill_type === "story_spec"
                     ? "Changes here affect the Story Generator agent."
-                    : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
+                    : draft.skill_type === "story_refinement"
+                      ? "Changes here affect the Story Refiner agent."
+                      : draft.skill_type === "story_slicing"
+                        ? "Changes here affect the Story Slicer agent."
+                        : draft.skill_type === "feature_refinement"
+                          ? "Changes here affect the Feature Refiner agent."
+                          : draft.skill_type === "feature_prioritization"
+                            ? "Changes here affect the Feature Prioritizer agent."
+                            : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
                 </p>
               </div>
               <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shrink-0 ${cfg.badgeCls}`}>

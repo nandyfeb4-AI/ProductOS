@@ -13,19 +13,22 @@ class ProjectRepository:
         slug: str,
         description: str | None,
         status: str,
+        average_velocity_per_sprint: int,
     ) -> dict[str, Any]:
         query = """
             insert into projects (
                 name,
                 slug,
                 description,
-                status
+                status,
+                average_velocity_per_sprint
             )
             values (
                 %(name)s,
                 %(slug)s,
                 %(description)s,
-                %(status)s
+                %(status)s,
+                %(average_velocity_per_sprint)s
             )
             returning *
         """
@@ -36,6 +39,7 @@ class ProjectRepository:
                 "slug": slug,
                 "description": description,
                 "status": status,
+                "average_velocity_per_sprint": average_velocity_per_sprint,
             },
         )
 
@@ -61,6 +65,7 @@ class ProjectRepository:
         slug: str | None = None,
         description: str | None = None,
         status: str | None = None,
+        average_velocity_per_sprint: int | None = None,
     ) -> dict[str, Any]:
         update_query = """
             update projects
@@ -68,7 +73,8 @@ class ProjectRepository:
                 name = coalesce(%(name)s, name),
                 slug = coalesce(%(slug)s, slug),
                 description = coalesce(%(description)s, description),
-                status = coalesce(%(status)s, status)
+                status = coalesce(%(status)s, status),
+                average_velocity_per_sprint = coalesce(%(average_velocity_per_sprint)s, average_velocity_per_sprint)
             where id = %(project_id)s::uuid
             returning id
         """
@@ -78,6 +84,7 @@ class ProjectRepository:
             "slug": slug,
             "description": description,
             "status": status,
+            "average_velocity_per_sprint": average_velocity_per_sprint,
         })
         if updated is None:
             raise RuntimeError("Expected a project row but none was returned.")
@@ -94,6 +101,7 @@ class ProjectRepository:
                 p.slug,
                 p.description,
                 p.status,
+                p.average_velocity_per_sprint,
                 p.created_at,
                 p.updated_at,
                 (
@@ -158,7 +166,12 @@ class ProjectRepository:
                     select count(*)
                     from project_stories ps
                     where ps.project_id = p.id
-                )::int as story_count
+                )::int as story_count,
+                (
+                    select count(*)
+                    from project_team_members ptm
+                    where ptm.project_id = p.id
+                )::int as team_member_count
             from projects p
         """
 

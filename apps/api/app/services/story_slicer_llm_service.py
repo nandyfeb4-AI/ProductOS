@@ -7,20 +7,18 @@ import certifi
 import httpx
 
 from app.core.config import settings
-from app.schemas.backlog_refinement import BacklogStoryDraft
-from app.schemas.agents import StoryGeneratorRequest
-from app.schemas.artifacts import StoryDraft
-from app.schemas.feature_hardening import JiraFeatureSource
-from app.schemas.project_features import ProjectFeatureResponse
-from app.services.story_spec_skill import (
-    build_story_spec_instructions,
+from app.schemas.backlog_refinement import BacklogStoryDraft, BacklogStorySlicingResult, JiraBacklogStorySource
+from app.schemas.agents import StorySlicerRequest
+from app.schemas.project_stories import ProjectStoryResponse
+from app.services.story_slicing_skill import (
+    build_story_slicing_instructions,
     normalize_story_body,
-    story_spec_response_schema,
+    story_slicing_response_schema,
 )
 
 
-class StoryGenerationLLMService:
-    """LLM-backed generation of implementation-ready stories from a persisted feature."""
+class StorySlicerLLMService:
+    """LLM-backed slicing of one persisted story into smaller persisted stories."""
 
     def __init__(self) -> None:
         self.api_key = settings.openai_api_key
@@ -31,141 +29,36 @@ class StoryGenerationLLMService:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    def generate(
+    def slice(
         self,
-        payload: StoryGeneratorRequest,
-        feature: ProjectFeatureResponse,
+        payload: StorySlicerRequest,
+        source_story: ProjectStoryResponse,
         skill: dict[str, Any] | None = None,
-    ) -> list[StoryDraft]:
+    ) -> dict[str, Any]:
         if not self.enabled:
             raise RuntimeError("OpenAI API key is not configured.")
 
         input_payload = {
             "project_id": str(payload.project_id),
             "source_type": payload.source_type,
-            "source_feature_id": str(payload.source_feature_id),
-            "story_count_hint": payload.story_count_hint,
+            "source_story_id": str(payload.source_story_id),
+            "target_story_count_hint": payload.target_story_count_hint,
             "constraints": payload.constraints,
             "supporting_context": payload.supporting_context,
-            "feature": {
-                "id": str(feature.id),
-                "title": feature.title,
-                "summary": feature.summary,
-                "body": feature.body,
-            },
+            "source_story": source_story.model_dump(mode="json"),
         }
 
         count_instruction = (
-            f"Generate approximately {payload.story_count_hint} stories. "
-            if payload.story_count_hint and payload.story_count_hint > 0
-            else "Generate 3 to 5 meaningful stories for a normal feature. "
+            f"Target approximately {payload.target_story_count_hint} child stories. "
+            if payload.target_story_count_hint and payload.target_story_count_hint > 0
+            else "Default to 2 to 4 child stories unless the source story is genuinely tiny or unusually large. "
         )
 
         request_body = {
             "model": self.model,
-            "instructions": build_story_spec_instructions(skill),
+            "instructions": build_story_slicing_instructions(skill),
             "input": (
-                "Create implementation-ready stories from the following persisted feature.\n\n"
-                f"{count_instruction}"
-                f"Source material: {json.dumps(input_payload, ensure_ascii=True)}"
-            ),
-            "max_output_tokens": 3200,
-            "reasoning": {"effort": "medium"},
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "story_generation_result",
-                    "strict": True,
-                    "schema": story_spec_response_schema(),
-                }
-            },
-        }
-
-        try:
-            body = self._post_request(request_body, verify=certifi.where())
-        except httpx.ConnectError:
-            if not settings.is_development:
-                raise
-            body = self._post_request(request_body, verify=False)
-
-        raw_output = self._extract_output_text(body)
-        try:
-            parsed = self._parse_json(raw_output)
-        except json.JSONDecodeError:
-            repair_body = {
-                "model": self.model,
-                "instructions": (
-                    "Repair malformed JSON so that it becomes valid JSON matching the requested schema. "
-                    "Do not add markdown. Do not explain anything. Return only JSON."
-                ),
-                "input": (
-                    "Repair this malformed story generation JSON into valid JSON with top-level key `stories` "
-                    "and story objects containing: title, user_story, as_a, i_want, so_that, description, "
-                    "acceptance_criteria, edge_cases, dependencies, priority.\n\n"
-                    f"Malformed JSON:\n{raw_output}"
-                ),
-                "max_output_tokens": 3200,
-                "text": {
-                    "format": {
-                        "type": "json_schema",
-                        "name": "story_generation_result",
-                        "strict": True,
-                        "schema": story_spec_response_schema(),
-                    }
-                },
-                "reasoning": {"effort": "low"},
-            }
-            try:
-                repair_response = self._post_request(repair_body, verify=certifi.where())
-            except httpx.ConnectError:
-                if not settings.is_development:
-                    raise
-                repair_response = self._post_request(repair_body, verify=False)
-            parsed = self._parse_json(self._extract_output_text(repair_response))
-
-        return self._coerce_stories(parsed, str(feature.id))
-
-    def generate_external(
-        self,
-        *,
-        project_id: str,
-        jira_project_key: str,
-        feature: JiraFeatureSource,
-        story_count_hint: int | None = None,
-        constraints: list[str] | None = None,
-        supporting_context: list[str] | None = None,
-        skill: dict[str, Any] | None = None,
-    ) -> list[BacklogStoryDraft]:
-        if not self.enabled:
-            raise RuntimeError("OpenAI API key is not configured.")
-
-        constraints = constraints or []
-        supporting_context = supporting_context or []
-        input_payload = {
-            "project_id": project_id,
-            "source_type": "jira_feature",
-            "jira_project_key": jira_project_key,
-            "source_feature_issue_key": feature.issue_key,
-            "story_count_hint": story_count_hint,
-            "constraints": constraints,
-            "supporting_context": supporting_context,
-            "feature": feature.model_dump(mode="json"),
-        }
-
-        count_instruction = (
-            f"Generate approximately {story_count_hint} stories. "
-            if story_count_hint and story_count_hint > 0
-            else "Generate 2 to 4 meaningful stories for this feature. "
-        )
-
-        request_body = {
-            "model": self.model,
-            "instructions": (
-                build_story_spec_instructions(skill)
-                + " Also estimate story points for each output story using Fibonacci-like sizing: 1, 2, 3, 5, 8, or 13."
-            ),
-            "input": (
-                "Create implementation-ready Jira stories from the following existing Jira feature/epic.\n\n"
+                "Slice the following persisted project story into smaller implementation-ready child stories.\n\n"
                 f"{count_instruction}"
                 f"Source material: {json.dumps(input_payload, ensure_ascii=True)}"
             ),
@@ -174,9 +67,9 @@ class StoryGenerationLLMService:
             "text": {
                 "format": {
                     "type": "json_schema",
-                    "name": "backlog_story_generation_result",
+                    "name": "story_slicing_result",
                     "strict": True,
-                    "schema": self._external_story_schema(),
+                    "schema": story_slicing_response_schema(),
                 }
             },
         }
@@ -199,17 +92,17 @@ class StoryGenerationLLMService:
                     "Do not add markdown. Do not explain anything. Return only JSON."
                 ),
                 "input": (
-                    "Repair this malformed backlog story generation JSON into valid JSON with top-level key `stories` "
-                    "and each story containing standard story fields plus `story_points`.\n\n"
+                    "Repair this malformed story slicing JSON into valid JSON with top-level keys "
+                    "`slicing_summary` and `stories`.\n\n"
                     f"Malformed JSON:\n{raw_output}"
                 ),
                 "max_output_tokens": 3600,
                 "text": {
                     "format": {
                         "type": "json_schema",
-                        "name": "backlog_story_generation_result",
+                        "name": "story_slicing_result",
                         "strict": True,
-                        "schema": self._external_story_schema(),
+                        "schema": story_slicing_response_schema(),
                     }
                 },
                 "reasoning": {"effort": "low"},
@@ -222,7 +115,106 @@ class StoryGenerationLLMService:
                 repair_response = self._post_request(repair_body, verify=False)
             parsed = self._parse_json(self._extract_output_text(repair_response))
 
-        stories: list[BacklogStoryDraft] = []
+        return self._coerce_result(parsed)
+
+    def slice_external(
+        self,
+        *,
+        project_id: str,
+        jira_project_key: str,
+        source_story: JiraBacklogStorySource,
+        target_story_count_hint: int | None = None,
+        constraints: list[str] | None = None,
+        supporting_context: list[str] | None = None,
+        skill: dict[str, Any] | None = None,
+    ) -> BacklogStorySlicingResult:
+        if not self.enabled:
+            raise RuntimeError("OpenAI API key is not configured.")
+
+        constraints = constraints or []
+        supporting_context = supporting_context or []
+        input_payload = {
+            "project_id": project_id,
+            "source_type": "jira_story",
+            "jira_project_key": jira_project_key,
+            "source_story_issue_key": source_story.issue_key,
+            "target_story_count_hint": target_story_count_hint,
+            "constraints": constraints,
+            "supporting_context": supporting_context,
+            "source_story": source_story.model_dump(mode="json"),
+        }
+
+        count_instruction = (
+            f"Target approximately {target_story_count_hint} child stories. "
+            if target_story_count_hint and target_story_count_hint > 0
+            else "Default to 2 to 4 child stories unless the source story is genuinely tiny or unusually large. "
+        )
+
+        request_body = {
+            "model": self.model,
+            "instructions": (
+                build_story_slicing_instructions(skill)
+                + " Also estimate story points for each child story using 1, 2, 3, 5, 8, or 13."
+            ),
+            "input": (
+                "Slice the following Jira backlog story into smaller implementation-ready Jira stories.\n\n"
+                f"{count_instruction}"
+                f"Source material: {json.dumps(input_payload, ensure_ascii=True)}"
+            ),
+            "max_output_tokens": 4000,
+            "reasoning": {"effort": "medium"},
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "backlog_story_slicing_result",
+                    "strict": True,
+                    "schema": self._external_slicing_schema(),
+                }
+            },
+        }
+
+        try:
+            body = self._post_request(request_body, verify=certifi.where())
+        except httpx.ConnectError:
+            if not settings.is_development:
+                raise
+            body = self._post_request(request_body, verify=False)
+
+        raw_output = self._extract_output_text(body)
+        try:
+            parsed = self._parse_json(raw_output)
+        except json.JSONDecodeError:
+            repair_body = {
+                "model": self.model,
+                "instructions": (
+                    "Repair malformed JSON so that it becomes valid JSON matching the requested schema. "
+                    "Do not add markdown. Do not explain anything. Return only JSON."
+                ),
+                "input": (
+                    "Repair this malformed backlog story slicing JSON into valid JSON with top-level keys "
+                    "`slicing_summary` and `stories`, and each story containing `story_points`.\n\n"
+                    f"Malformed JSON:\n{raw_output}"
+                ),
+                "max_output_tokens": 4000,
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "backlog_story_slicing_result",
+                        "strict": True,
+                        "schema": self._external_slicing_schema(),
+                    }
+                },
+                "reasoning": {"effort": "low"},
+            }
+            try:
+                repair_response = self._post_request(repair_body, verify=certifi.where())
+            except httpx.ConnectError:
+                if not settings.is_development:
+                    raise
+                repair_response = self._post_request(repair_body, verify=False)
+            parsed = self._parse_json(self._extract_output_text(repair_response))
+
+        stories = []
         for item in parsed.get("stories", []):
             normalized = normalize_story_body(item if isinstance(item, dict) else {})
             stories.append(
@@ -231,7 +223,11 @@ class StoryGenerationLLMService:
                     story_points=self._coerce_story_points((item or {}).get("story_points")),
                 )
             )
-        return stories
+        return BacklogStorySlicingResult(
+            source_story=source_story,
+            stories=stories,
+            slicing_summary=str(parsed.get("slicing_summary", "")).strip(),
+        )
 
     def _post_request(self, request_body: dict[str, Any], verify: str | bool) -> dict[str, Any]:
         with httpx.Client(timeout=90.0, verify=verify) as client:
@@ -276,34 +272,22 @@ class StoryGenerationLLMService:
                 return json.loads(text[start : end + 1])
             raise
 
-    def _coerce_stories(self, parsed: dict[str, Any], source_feature_id: str) -> list[StoryDraft]:
-        stories: list[StoryDraft] = []
-        for index, item in enumerate(parsed.get("stories", []), start=1):
+    def _coerce_result(self, parsed: dict[str, Any]) -> dict[str, Any]:
+        stories = []
+        for item in parsed.get("stories", []):
             normalized = normalize_story_body(item if isinstance(item, dict) else {})
-            stories.append(
-                StoryDraft(
-                    story_id=f"story_generated_{index}",
-                    derived_from_artifact_id=source_feature_id,
-                    status="draft",
-                    title=normalized["title"],
-                    user_story=normalized["user_story"],
-                    as_a=normalized["as_a"],
-                    i_want=normalized["i_want"],
-                    so_that=normalized["so_that"],
-                    description=normalized["description"],
-                    acceptance_criteria=normalized["acceptance_criteria"],
-                    edge_cases=normalized["edge_cases"],
-                    dependencies=normalized["dependencies"],
-                    priority=normalized["priority"],
-                )
-            )
-        return stories
+            stories.append(normalized)
+        return {
+            "slicing_summary": str(parsed.get("slicing_summary", "")).strip(),
+            "stories": stories,
+        }
 
-    def _external_story_schema(self) -> dict[str, Any]:
+    def _external_slicing_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "additionalProperties": False,
             "properties": {
+                "slicing_summary": {"type": "string"},
                 "stories": {
                     "type": "array",
                     "items": {
@@ -336,9 +320,9 @@ class StoryGenerationLLMService:
                             "story_points",
                         ],
                     },
-                }
+                },
             },
-            "required": ["stories"],
+            "required": ["slicing_summary", "stories"],
         }
 
     def _coerce_story_points(self, value: Any) -> int:

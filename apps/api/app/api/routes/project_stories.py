@@ -24,10 +24,11 @@ async def create_project_story(
 async def list_project_stories(
     project_id: str | None = Query(default=None),
     source_feature_id: str | None = Query(default=None),
+    source_story_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
     service: PipelineService = Depends(get_pipeline_service),
 ) -> ProjectStoryListResponse:
-    return service.list_project_stories(project_id, source_feature_id, status)
+    return service.list_project_stories(project_id, source_feature_id, source_story_id, status)
 
 
 @router.get("/{story_id}", response_model=ProjectStoryResponse)

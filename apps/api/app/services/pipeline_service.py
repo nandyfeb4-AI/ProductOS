@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from app.repositories.connector_repository import ConnectorRepository
 from app.repositories.project_feature_repository import ProjectFeatureRepository
 from app.repositories.project_repository import ProjectRepository
+from app.repositories.project_team_repository import ProjectTeamRepository
 from app.repositories.project_story_repository import ProjectStoryRepository
 from app.repositories.skill_repository import SkillRepository
 from app.repositories.workshop_repository import WorkshopRepository
@@ -25,14 +26,49 @@ from app.schemas.artifacts import (
     StorySliceWorkflowRequest,
     StorySliceWorkflowResponse,
 )
+from app.schemas.backlog_refinement import (
+    BacklogRefinementExecutionResult,
+    BacklogFeatureSummary,
+    BacklogHealthSummary,
+    BacklogStoryDraft,
+    JiraBacklogStorySource,
+    BacklogStoryRefinementResult,
+    BacklogStorySlicingResult,
+    BacklogRefinementAnalyzeRequest,
+    BacklogRefinementAnalyzeResponse,
+    BacklogRefinementExecuteRequest,
+    BacklogRefinementExecuteResponse,
+    BacklogRefinementExecutionSummary,
+    BacklogRefinementSourceResponse,
+    BacklogRoutingItem,
+)
 from app.schemas.agents import (
     FeatureGeneratorRequest,
     FeatureGeneratorResponse,
+    FeaturePrioritizerRequest,
+    FeaturePrioritizerResponse,
+    FeatureRefinerRequest,
+    FeatureRefinerResponse,
     StoryGeneratorRequest,
     StoryGeneratorResponse,
+    StoryRefinementEvaluation,
+    StoryRefinerRequest,
+    StoryRefinerResponse,
+    StorySlicerRequest,
+    StorySlicerResponse,
 )
 from app.schemas.common import InsightBundle, StoryArtifact
 from app.schemas.feature import Feature, FeatureGenerateRequest, FeatureGenerateResponse
+from app.schemas.feature_hardening import (
+    FeatureHardeningPublishRequest,
+    FeatureHardeningPublishResponse,
+    FeatureHardeningPublishResult,
+    FeatureHardeningResult,
+    FeatureHardeningRunRequest,
+    FeatureHardeningRunResponse,
+    JiraFeatureSource,
+    JiraFeatureSourceListResponse,
+)
 from app.schemas.initiative import Initiative, InitiativeGenerateRequest, InitiativeGenerateResponse
 from app.schemas.jira import JiraPushRequest, JiraPushResponse, JiraPushResult
 from app.schemas.jira_connector import (
@@ -84,6 +120,7 @@ from app.schemas.story import (
     StorySliceRequest,
     StorySliceResponse,
 )
+from app.schemas.team import ProjectTeamMember, ProjectTeamResponse
 from app.schemas.workshop import WorkshopAnalyzeRequest, WorkshopAnalyzeResponse
 from app.schemas.workshop import (
     WorkshopCreateRequest,
@@ -101,12 +138,20 @@ from app.schemas.workflow_runs import (
 from app.services.mural_service import MuralService
 from app.services.artifact_generation_llm_service import ArtifactGenerationLLMService
 from app.services.feature_generation_llm_service import FeatureGenerationLLMService
+from app.services.feature_prioritization_llm_service import FeaturePrioritizationLLMService
+from app.services.feature_prioritization_skill import default_feature_prioritization_skill
+from app.services.feature_refinement_llm_service import FeatureRefinementLLMService
+from app.services.feature_refinement_skill import default_feature_refinement_skill
 from app.services.feature_spec_skill import default_feature_spec_skill
 from app.services.jira_service import JiraService
 from app.services.opportunity_llm_service import OpportunityLLMService
 from app.services.solution_shaping_llm_service import SolutionShapingLLMService
 from app.services.story_slicing_llm_service import StorySlicingLLMService
+from app.services.story_slicer_llm_service import StorySlicerLLMService
 from app.services.story_generation_llm_service import StoryGenerationLLMService
+from app.services.story_refinement_llm_service import StoryRefinementLLMService
+from app.services.story_refinement_skill import default_story_refinement_skill
+from app.services.story_slicing_skill import default_story_slicing_skill
 from app.services.story_spec_skill import default_story_spec_skill
 from app.schemas.solution_shaping import (
     ShapedSolution,
@@ -128,6 +173,20 @@ class PipelineService:
         "negative_moments": "Negative moments",
         "areas_of_opportunity": "Areas of opportunity",
     }
+    WORKFLOW_DEFINITION_DEFAULTS = {
+        "workshop": {
+            "workflow_definition_key": "discovery_to_delivery",
+            "workflow_definition_label": "Discovery to Delivery",
+        },
+        "feature_hardening": {
+            "workflow_definition_key": "feature_hardening",
+            "workflow_definition_label": "Feature Hardening",
+        },
+        "backlog_refinement": {
+            "workflow_definition_key": "backlog_refinement",
+            "workflow_definition_label": "Backlog Refinement",
+        },
+    }
     logger = logging.getLogger(__name__)
 
     def __init__(self) -> None:
@@ -135,13 +194,18 @@ class PipelineService:
         self.solution_shaping_llm_service = SolutionShapingLLMService()
         self.artifact_generation_llm_service = ArtifactGenerationLLMService()
         self.feature_generation_llm_service = FeatureGenerationLLMService()
+        self.feature_prioritization_llm_service = FeaturePrioritizationLLMService()
+        self.feature_refinement_llm_service = FeatureRefinementLLMService()
         self.story_generation_llm_service = StoryGenerationLLMService()
+        self.story_refinement_llm_service = StoryRefinementLLMService()
+        self.story_slicer_llm_service = StorySlicerLLMService()
         self.story_slicing_llm_service = StorySlicingLLMService()
         self.jira_service = JiraService()
         self.connector_repository = ConnectorRepository()
         self.project_feature_repository = ProjectFeatureRepository()
         self.project_story_repository = ProjectStoryRepository()
         self.project_repository = ProjectRepository()
+        self.project_team_repository = ProjectTeamRepository()
         self.skill_repository = SkillRepository()
         self.workshop_repository = WorkshopRepository()
         self.workflow_repository = WorkflowRepository()
@@ -383,6 +447,45 @@ class PipelineService:
     def get_jira_projects(self) -> JiraProjectsResponse:
         return self.jira_service.list_projects()
 
+    def get_jira_project_features(self, project_key: str) -> JiraFeatureSourceListResponse:
+        try:
+            return JiraFeatureSourceListResponse(features=self.jira_service.list_project_features(project_key))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    def get_backlog_refinement_source(self, project_id: str, jira_project_key: str) -> BacklogRefinementSourceResponse:
+        self._ensure_project_exists(project_id)
+        try:
+            features = self.jira_service.list_project_features(jira_project_key)
+            stories = self.jira_service.list_project_backlog_stories(jira_project_key)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+        story_points_by_feature: dict[str, float] = {}
+        story_count_by_feature: dict[str, int] = {}
+        for story in stories:
+            parent_key = story.parent_issue_key or ""
+            if not parent_key:
+                continue
+            story_count_by_feature[parent_key] = story_count_by_feature.get(parent_key, 0) + 1
+            story_points_by_feature[parent_key] = story_points_by_feature.get(parent_key, 0.0) + float(story.story_points or 0)
+
+        summarized_features = [
+            BacklogFeatureSummary(
+                **feature.model_dump(mode="json"),
+                story_count=story_count_by_feature.get(feature.issue_key, 0),
+                total_story_points=round(story_points_by_feature.get(feature.issue_key, 0.0), 1),
+            )
+            for feature in features
+        ]
+        total_points = round(sum(float(story.story_points or 0) for story in stories), 1)
+        return BacklogRefinementSourceResponse(
+            jira_project_key=jira_project_key,
+            features=summarized_features,
+            stories=stories,
+            total_story_points=total_points,
+        )
+
     def export_to_jira(self, payload: JiraExportRequest) -> JiraExportResponse:
         return self.jira_service.export(payload)
 
@@ -398,6 +501,510 @@ class PipelineService:
                 jira_issue_type=result.issue_type,
             )
         return result
+
+    def run_feature_hardening(self, payload: FeatureHardeningRunRequest) -> FeatureHardeningRunResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        source_features = self.jira_service.list_project_features(payload.jira_project_key)
+        by_key = {feature.issue_key: feature for feature in source_features}
+        selected_features = [by_key[issue_key] for issue_key in payload.issue_keys if issue_key in by_key]
+        if not selected_features:
+            raise RuntimeError("No matching Jira epics were found for the selected issue keys.")
+        if not self.feature_refinement_llm_service.enabled:
+            raise RuntimeError("AI feature refinement is unavailable. Configure the OpenAI API key and retry.")
+
+        active_skill = self._get_active_feature_refinement_skill()
+        try:
+            # Harden Jira epics one at a time to keep each LLM request bounded.
+            # This avoids large multi-epic payloads becoming fragile or timing out.
+            hardening_results = []
+            for feature in selected_features:
+                item_results = self.feature_refinement_llm_service.refine_external(
+                    project_id=str(payload.project_id),
+                    jira_project_key=payload.jira_project_key,
+                    features=[feature],
+                    refinement_goal=payload.refinement_goal,
+                    constraints=payload.constraints,
+                    supporting_context=payload.supporting_context,
+                    skill=active_skill,
+                )
+                hardening_results.extend(item_results)
+        except Exception as exc:
+            self.logger.exception("AI feature hardening failed")
+            raise RuntimeError("AI feature hardening failed. Please retry.") from exc
+
+        summary = self._summarize_feature_hardening(hardening_results)
+        if payload.workflow_id:
+            self._persist_feature_hardening_state(payload, selected_features, hardening_results, summary)
+
+        return FeatureHardeningRunResponse(
+            workflow_id=payload.workflow_id,
+            jira_project_key=payload.jira_project_key,
+            results=hardening_results,
+            hardening_summary=summary,
+        )
+
+    def publish_feature_hardening(self, payload: FeatureHardeningPublishRequest) -> FeatureHardeningPublishResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        updated_results: list[FeatureHardeningPublishResult] = []
+        for item in payload.results:
+            result = self.jira_service.update_feature_issue(
+                payload.jira_project_key,
+                item.issue_key,
+                item.refined_feature,
+            )
+            updated_results.append(FeatureHardeningPublishResult(**result))
+
+        if payload.workflow_id:
+            workflow = self._require_workflow_run(str(payload.workflow_id))
+            state_payload = dict(workflow.get("state_payload") or {})
+            state_payload["feature_hardening_publish"] = {
+                "jira_project_key": payload.jira_project_key,
+                "results": [item.model_dump(mode="json") for item in updated_results],
+            }
+            self.update_workflow_run(
+                str(payload.workflow_id),
+                WorkflowRunUpdateRequest(
+                    current_step="sync",
+                    status="completed",
+                    state_payload=state_payload,
+                ),
+            )
+
+        return FeatureHardeningPublishResponse(
+            workflow_id=payload.workflow_id,
+            results=updated_results,
+        )
+
+    def analyze_backlog_refinement(self, payload: BacklogRefinementAnalyzeRequest) -> BacklogRefinementAnalyzeResponse:
+        project = self.get_project(str(payload.project_id))
+        source = self.get_backlog_refinement_source(str(payload.project_id), payload.jira_project_key)
+
+        selected_feature_keys = set(payload.feature_issue_keys or [feature.issue_key for feature in source.features])
+        selected_features = [feature for feature in source.features if feature.issue_key in selected_feature_keys]
+        selected_feature_keys = {feature.issue_key for feature in selected_features}
+        selected_stories = [
+            story
+            for story in source.stories
+            if (not story.parent_issue_key or story.parent_issue_key in selected_feature_keys)
+            and not self._is_superseded_story(story.title)
+        ]
+
+        generate: list[BacklogRoutingItem] = []
+        refine: list[BacklogRoutingItem] = []
+        slice_items: list[BacklogRoutingItem] = []
+        ready: list[BacklogRoutingItem] = []
+
+        priority_rank = {"highest": 5, "high": 4, "medium": 3, "low": 2, "lowest": 1}
+        selected_features.sort(
+            key=lambda feature: (
+                -priority_rank.get((feature.priority_name or "").lower(), 0),
+                feature.issue_key,
+            )
+        )
+
+        stories_by_feature: dict[str, list] = {}
+        for story in selected_stories:
+            parent_key = story.parent_issue_key or ""
+            if parent_key:
+                stories_by_feature.setdefault(parent_key, []).append(story)
+
+        story_evaluations: dict[str, StoryRefinementEvaluation] = {}
+        active_story_refinement_skill = self._get_active_story_refinement_skill()
+        if selected_stories:
+            # Evaluate stories in tiny internal batches so the UI still experiences
+            # a single "Analyze backlog" run, while we avoid fragile multi-story
+            # structured LLM responses that can omit items.
+            for story_batch in self._chunk_list(selected_stories, 1):
+                evaluated_batch = self.story_refinement_llm_service.refine_external(
+                    project_id=str(payload.project_id),
+                    jira_project_key=payload.jira_project_key,
+                    stories=story_batch,
+                    refinement_goal=(
+                        "Evaluate story readiness for backlog refinement routing. "
+                        "Use the story quality bar strictly so only strong, implementation-ready stories are considered ready."
+                    ),
+                    skill=active_story_refinement_skill,
+                )
+                for evaluated_story in evaluated_batch:
+                    story_evaluations[evaluated_story.issue_key] = evaluated_story.evaluation
+
+        total_ready_points = 0.0
+        for feature in selected_features:
+            feature_stories = stories_by_feature.get(feature.issue_key, [])
+            if not feature_stories:
+                generate.append(
+                    BacklogRoutingItem(
+                        issue_key=feature.issue_key,
+                        issue_url=feature.issue_url,
+                        item_type="feature",
+                        title=feature.title,
+                        reason="No stories exist yet for this feature, so story generation is needed.",
+                    )
+                )
+                continue
+            if len(feature_stories) < 3:
+                generate.append(
+                    BacklogRoutingItem(
+                        issue_key=feature.issue_key,
+                        issue_url=feature.issue_url,
+                        item_type="feature",
+                        title=feature.title,
+                        reason="Story coverage for this feature is still thin, so more stories should be generated.",
+                    )
+                )
+
+            for story in feature_stories:
+                if story.story_points is not None and story.story_points >= 8:
+                    slice_items.append(
+                        BacklogRoutingItem(
+                            issue_key=story.issue_key,
+                            issue_url=story.issue_url,
+                            item_type="story",
+                            parent_issue_key=feature.issue_key,
+                            title=story.title,
+                            reason="Story is oversized and should be sliced into smaller delivery units.",
+                            story_points=story.story_points,
+                        )
+                    )
+                    continue
+                evaluation = story_evaluations.get(story.issue_key)
+                if (
+                    story.story_points is None
+                    or evaluation is None
+                    or evaluation.needs_refinement
+                    or evaluation.overall_score < 3
+                ):
+                    reason = self._build_backlog_refine_reason(story, evaluation)
+                    refine.append(
+                        BacklogRoutingItem(
+                            issue_key=story.issue_key,
+                            issue_url=story.issue_url,
+                            item_type="story",
+                            parent_issue_key=feature.issue_key,
+                            title=story.title,
+                            reason=reason,
+                            story_points=story.story_points,
+                        )
+                    )
+                    continue
+                total_ready_points += float(story.story_points or 0)
+                ready.append(
+                    BacklogRoutingItem(
+                        issue_key=story.issue_key,
+                            issue_url=story.issue_url,
+                            item_type="story",
+                            parent_issue_key=feature.issue_key,
+                            title=story.title,
+                            reason=self._build_backlog_ready_reason(evaluation),
+                            story_points=story.story_points,
+                        )
+                    )
+
+        velocity = int(project.average_velocity_per_sprint or 24)
+        target = velocity * 2
+        shortfall = round(max(target - total_ready_points, 0), 1)
+        health = BacklogHealthSummary(
+            average_velocity_per_sprint=velocity,
+            minimum_ready_backlog_target=target,
+            total_backlog_story_points=round(sum(float(story.story_points or 0) for story in selected_stories), 1),
+            total_ready_story_points=round(total_ready_points, 1),
+            backlog_point_shortfall=shortfall,
+            feature_count=len(selected_features),
+            story_count=len(selected_stories),
+        )
+        summary = (
+            f"Checked {len(selected_features)} prioritized feature"
+            f"{'' if len(selected_features) == 1 else 's'} and {len(selected_stories)} backlog stor"
+            f"{'y' if len(selected_stories) == 1 else 'ies'}. "
+            f"Current backlog points: {health.total_backlog_story_points}/{target} minimum floor. "
+            f"Buckets — Generate: {len(generate)}, Refine: {len(refine)}, Slice: {len(slice_items)}, Ready: {len(ready)}."
+        )
+
+        if payload.workflow_id:
+            self.update_workflow_run(
+                str(payload.workflow_id),
+                WorkflowRunUpdateRequest(
+                    current_step="review",
+                    status="active",
+                    state_payload={
+                        "backlog_refinement_source": source.model_dump(mode="json"),
+                        "backlog_refinement_analysis": {
+                            "health": health.model_dump(mode="json"),
+                            "generate": [item.model_dump(mode="json") for item in generate],
+                            "refine": [item.model_dump(mode="json") for item in refine],
+                            "slice": [item.model_dump(mode="json") for item in slice_items],
+                            "ready": [item.model_dump(mode="json") for item in ready],
+                            "summary": summary,
+                        },
+                    },
+                ),
+            )
+
+        return BacklogRefinementAnalyzeResponse(
+            workflow_id=payload.workflow_id,
+            jira_project_key=payload.jira_project_key,
+            health=health,
+            generate=generate,
+            refine=refine,
+            slice=slice_items,
+            ready=ready,
+            summary=summary,
+        )
+
+    @staticmethod
+    def _chunk_list(items: list, size: int) -> list[list]:
+        if size <= 0:
+            return [items]
+        return [items[index : index + size] for index in range(0, len(items), size)]
+
+    def _build_backlog_refine_reason(
+        self,
+        story: JiraBacklogStorySource,
+        evaluation: StoryRefinementEvaluation | None,
+    ) -> str:
+        if story.story_points is None:
+            return "Story needs estimation before it can be considered truly backlog-ready."
+        if evaluation is None:
+            return "Story needs stronger detail or acceptance criteria before it is truly ready."
+        detail = next(
+            (
+                item
+                for item in (
+                    evaluation.refinement_reasons
+                    + evaluation.gaps
+                )
+                if item
+            ),
+            "",
+        )
+        if detail:
+            return f"Story needs refinement before it is truly ready: {detail}"
+        return "Story needs stronger detail, acceptance criteria, or dependency clarity before it is truly ready."
+
+    @staticmethod
+    def _build_backlog_ready_reason(evaluation: StoryRefinementEvaluation) -> str:
+        strengths = [item for item in evaluation.strengths if item]
+        if strengths:
+            return f"Story is estimated and ready to stay in the backlog: {strengths[0]}"
+        return "Story is estimated, implementation-ready, and strong enough to stay in the ready backlog."
+
+    def execute_backlog_refinement(self, payload: BacklogRefinementExecuteRequest) -> BacklogRefinementExecuteResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        source = self.get_backlog_refinement_source(str(payload.project_id), payload.jira_project_key)
+        features_by_key = {feature.issue_key: feature for feature in source.features}
+        stories_by_key = {
+            story.issue_key: story
+            for story in source.stories
+            if not self._is_superseded_story(story.title)
+        }
+        stories_by_feature: dict[str, list] = {}
+        for story in stories_by_key.values():
+            if story.parent_issue_key:
+                stories_by_feature.setdefault(story.parent_issue_key, []).append(story)
+
+        results: list[BacklogRefinementExecutionResult] = []
+        created_story_count = 0
+        updated_story_count = 0
+        sliced_story_count = 0
+
+        active_story_spec_skill = self._get_active_story_spec_skill()
+        active_story_refinement_skill = self._get_active_story_refinement_skill()
+        active_story_slicing_skill = self._get_active_story_slicing_skill()
+
+        for feature_issue_key in payload.generate_issue_keys:
+            feature = features_by_key.get(feature_issue_key)
+            if feature is None:
+                results.append(
+                    BacklogRefinementExecutionResult(
+                        bucket="generate",
+                        source_issue_key=feature_issue_key,
+                        status="skipped",
+                        message="Feature was not found in the loaded Jira source snapshot.",
+                    )
+                )
+                continue
+            existing_story_count = len(stories_by_feature.get(feature.issue_key, []))
+            story_count_hint = 3 if existing_story_count == 0 else 2
+            generated_stories = self.story_generation_llm_service.generate_external(
+                project_id=str(payload.project_id),
+                jira_project_key=payload.jira_project_key,
+                feature=feature,
+                story_count_hint=story_count_hint,
+                skill=active_story_spec_skill,
+            )
+            created_issues = [
+                self.jira_service.create_story_issue(
+                    payload.jira_project_key,
+                    parent_issue_key=feature.issue_key,
+                    story=story,
+                )
+                for story in generated_stories
+            ]
+            created_story_count += len(created_issues)
+            results.append(
+                BacklogRefinementExecutionResult(
+                    bucket="generate",
+                    source_issue_key=feature.issue_key,
+                    source_issue_url=feature.issue_url,
+                    status="completed",
+                    message=f"Generated and created {len(created_issues)} story{'ies' if len(created_issues) != 1 else ''}.",
+                    created_issues=created_issues,
+                )
+            )
+
+        for story_issue_key in payload.refine_issue_keys:
+            story = stories_by_key.get(story_issue_key)
+            if story is None:
+                results.append(
+                    BacklogRefinementExecutionResult(
+                        bucket="refine",
+                        source_issue_key=story_issue_key,
+                        status="skipped",
+                        message="Story was not found in the loaded Jira backlog snapshot.",
+                    )
+                )
+                continue
+            refined_results = self.story_refinement_llm_service.refine_external(
+                project_id=str(payload.project_id),
+                jira_project_key=payload.jira_project_key,
+                stories=[story],
+                skill=active_story_refinement_skill,
+            )
+            if not refined_results:
+                raise RuntimeError(
+                    f"AI backlog refinement did not return a refinement result for story {story.issue_key}."
+                )
+            refined_result = refined_results[0]
+            updated_issue = self.jira_service.update_story_issue(
+                payload.jira_project_key,
+                story.issue_key,
+                refined_result.refined_story,
+            )
+            updated_story_count += 1
+            results.append(
+                BacklogRefinementExecutionResult(
+                    bucket="refine",
+                    source_issue_key=story.issue_key,
+                    source_issue_url=story.issue_url,
+                    status="completed",
+                    message=refined_result.refinement_summary or "Refined and updated the Jira story.",
+                    updated_issue=updated_issue,
+                )
+            )
+
+        for story_issue_key in payload.slice_issue_keys:
+            story = stories_by_key.get(story_issue_key)
+            if story is None:
+                results.append(
+                    BacklogRefinementExecutionResult(
+                        bucket="slice",
+                        source_issue_key=story_issue_key,
+                        status="skipped",
+                        message="Story was not found in the loaded Jira backlog snapshot.",
+                    )
+                )
+                continue
+            target_story_count_hint = 4 if (story.story_points or 0) >= 13 else 3
+            sliced_result = self.story_slicer_llm_service.slice_external(
+                project_id=str(payload.project_id),
+                jira_project_key=payload.jira_project_key,
+                source_story=story,
+                target_story_count_hint=target_story_count_hint,
+                skill=active_story_slicing_skill,
+            )
+
+            split_stories = sliced_result.stories or []
+            if not split_stories:
+                results.append(
+                    BacklogRefinementExecutionResult(
+                        bucket="slice",
+                        source_issue_key=story.issue_key,
+                        source_issue_url=story.issue_url,
+                        status="failed",
+                        message="Story slicer did not return any split stories.",
+                    )
+                )
+                continue
+
+            # Preserve the original Jira story as one of the split outcomes by
+            # rewriting it to the first smaller slice, then create sibling
+            # stories for the remaining slices.
+            updated_issue = self.jira_service.update_story_issue(
+                payload.jira_project_key,
+                story.issue_key,
+                split_stories[0],
+            )
+            created_issues = [
+                self.jira_service.create_story_issue(
+                    payload.jira_project_key,
+                    parent_issue_key=story.parent_issue_key,
+                    story=child_story,
+                )
+                for child_story in split_stories[1:]
+            ]
+            created_story_count += len(created_issues)
+            updated_story_count += 1
+            sliced_story_count += 1
+            results.append(
+                BacklogRefinementExecutionResult(
+                    bucket="slice",
+                    source_issue_key=story.issue_key,
+                    source_issue_url=story.issue_url,
+                    status="completed",
+                    message=(
+                        sliced_result.slicing_summary
+                        or f"Split the original story into {len(split_stories)} smaller stories."
+                    ),
+                    created_issues=created_issues,
+                    updated_issue=updated_issue,
+                )
+            )
+
+        execution = BacklogRefinementExecutionSummary(
+            generate_count=len(payload.generate_issue_keys),
+            refine_count=len(payload.refine_issue_keys),
+            slice_count=len(payload.slice_issue_keys),
+            approved_total=len(payload.generate_issue_keys) + len(payload.refine_issue_keys) + len(payload.slice_issue_keys),
+            created_story_count=created_story_count,
+            updated_story_count=updated_story_count,
+            sliced_story_count=sliced_story_count,
+        )
+        summary = (
+            f"Executed backlog refinement — Generate: {execution.generate_count}, "
+            f"Refine: {execution.refine_count}, Slice: {execution.slice_count}. "
+            f"Created {execution.created_story_count} Jira stor"
+            f"{'y' if execution.created_story_count == 1 else 'ies'}, "
+            f"updated {execution.updated_story_count}, sliced {execution.sliced_story_count}."
+        )
+
+        if payload.workflow_id:
+            workflow = self._require_workflow_run(str(payload.workflow_id))
+            state_payload = dict(workflow.get("state_payload") or {})
+            state_payload["backlog_refinement_execution"] = {
+                "jira_project_key": payload.jira_project_key,
+                "generate_issue_keys": payload.generate_issue_keys,
+                "refine_issue_keys": payload.refine_issue_keys,
+                "slice_issue_keys": payload.slice_issue_keys,
+                "execution": execution.model_dump(mode="json"),
+                "results": [item.model_dump(mode="json") for item in results],
+                "summary": summary,
+            }
+            self.update_workflow_run(
+                str(payload.workflow_id),
+                WorkflowRunUpdateRequest(
+                    current_step="done",
+                    status="completed",
+                    state_payload=state_payload,
+                ),
+            )
+
+        return BacklogRefinementExecuteResponse(
+            workflow_id=payload.workflow_id,
+            jira_project_key=payload.jira_project_key,
+            execution=execution,
+            results=results,
+            summary=summary,
+        )
 
     def list_connectors(self) -> ConnectorListResponse:
         connected_rows = {row["provider"]: row for row in self.connector_repository.list_connector_overview()}
@@ -444,6 +1051,11 @@ class PipelineService:
     def create_workflow_run(self, payload: WorkflowRunCreateRequest) -> WorkflowRunResponse:
         workshop_row = None
         resolved_project_id = str(payload.project_id) if payload.project_id is not None else None
+        workflow_definition = self._resolve_workflow_definition(
+            payload.workflow_type,
+            payload.workflow_definition_key,
+            payload.workflow_definition_label,
+        )
         if payload.project_id is not None:
             self._ensure_project_exists(resolved_project_id)
         if payload.workshop_id is not None:
@@ -458,6 +1070,8 @@ class PipelineService:
                 )
         row = self.workflow_repository.create_workflow(
             workflow_type=payload.workflow_type,
+            workflow_definition_key=workflow_definition["workflow_definition_key"],
+            workflow_definition_label=workflow_definition["workflow_definition_label"],
             project_id=resolved_project_id,
             workshop_id=str(payload.workshop_id) if payload.workshop_id is not None else None,
             title=payload.title,
@@ -481,6 +1095,7 @@ class PipelineService:
     def list_workflow_runs(
         self,
         workflow_type: str | None = None,
+        workflow_definition_key: str | None = None,
         project_id: str | None = None,
         workshop_id: str | None = None,
     ) -> WorkflowRunListResponse:
@@ -488,7 +1103,7 @@ class PipelineService:
             self._ensure_project_exists(project_id)
         if workshop_id is not None:
             self._ensure_workshop_exists(workshop_id)
-        rows = self.workflow_repository.list_workflows(workflow_type, project_id, workshop_id)
+        rows = self.workflow_repository.list_workflows(workflow_type, workflow_definition_key, project_id, workshop_id)
         return WorkflowRunListResponse(workflows=[WorkflowRunResponse(**row) for row in rows])
 
     def get_workflow_run(self, workflow_id: str) -> WorkflowRunResponse:
@@ -499,6 +1114,9 @@ class PipelineService:
 
     def update_workflow_run(self, workflow_id: str, payload: WorkflowRunUpdateRequest) -> WorkflowRunResponse:
         workshop_row = None
+        current_row = self.workflow_repository.get_workflow(workflow_id)
+        if current_row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found.")
         if payload.project_id is not None:
             self._ensure_project_exists(str(payload.project_id))
         if payload.workshop_id is not None:
@@ -508,8 +1126,17 @@ class PipelineService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Workflow project_id must match the workshop's project_id.",
                 )
+        workflow_definition = self._resolve_workflow_definition(
+            current_row["workflow_type"],
+            payload.workflow_definition_key,
+            payload.workflow_definition_label,
+            current_key=current_row.get("workflow_definition_key"),
+            current_label=current_row.get("workflow_definition_label"),
+        )
         row = self.workflow_repository.update_workflow(
             workflow_id,
+            workflow_definition_key=workflow_definition["workflow_definition_key"],
+            workflow_definition_label=workflow_definition["workflow_definition_label"],
             project_id=str(payload.project_id) if payload.project_id is not None else None,
             workshop_id=str(payload.workshop_id) if payload.workshop_id is not None else None,
             title=payload.title,
@@ -530,13 +1157,88 @@ class PipelineService:
             )
         return WorkflowRunResponse(**row)
 
+    def _require_workflow_run(self, workflow_id: str) -> dict:
+        row = self.workflow_repository.get_workflow(workflow_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found.")
+        return row
+
+    def _resolve_workflow_definition(
+        self,
+        workflow_type: str,
+        definition_key: str | None,
+        definition_label: str | None,
+        *,
+        current_key: str | None = None,
+        current_label: str | None = None,
+    ) -> dict[str, str | None]:
+        if definition_key or definition_label:
+            return {
+                "workflow_definition_key": definition_key or current_key,
+                "workflow_definition_label": definition_label or current_label,
+            }
+        if current_key or current_label:
+            return {
+                "workflow_definition_key": current_key,
+                "workflow_definition_label": current_label,
+            }
+        defaults = self.WORKFLOW_DEFINITION_DEFAULTS.get(workflow_type, {})
+        return {
+            "workflow_definition_key": defaults.get("workflow_definition_key"),
+            "workflow_definition_label": defaults.get("workflow_definition_label"),
+        }
+
+    def _persist_feature_hardening_state(
+        self,
+        payload: FeatureHardeningRunRequest,
+        selected_features: list[JiraFeatureSource],
+        hardening_results: list[FeatureHardeningResult],
+        summary: str,
+    ) -> None:
+        workflow = self._require_workflow_run(str(payload.workflow_id))
+        state_payload = dict(workflow.get("state_payload") or {})
+        state_payload["feature_hardening_source"] = {
+            "jira_project_key": payload.jira_project_key,
+            "features": [feature.model_dump(mode="json") for feature in selected_features],
+        }
+        state_payload["feature_hardening_results"] = {
+            "jira_project_key": payload.jira_project_key,
+            "results": [result.model_dump(mode="json") for result in hardening_results],
+            "summary": summary,
+        }
+        self.update_workflow_run(
+            str(payload.workflow_id),
+            WorkflowRunUpdateRequest(
+                current_step="review",
+                status="active",
+                state_payload=state_payload,
+            ),
+        )
+
+    def _summarize_feature_hardening(self, results: list[FeatureHardeningResult]) -> str:
+        if not results:
+            return "No Jira epics were hardened."
+        needs_refinement = sum(1 for result in results if result.evaluation.needs_refinement)
+        avg_score = round(sum(result.evaluation.overall_score for result in results) / len(results), 1)
+        return (
+            f"Evaluated {len(results)} Jira epic"
+            f"{'' if len(results) == 1 else 's'}. "
+            f"{needs_refinement} needed hardening. "
+            f"Average readiness score: {avg_score}/5."
+        )
+
+    def _is_superseded_story(self, title: str | None) -> bool:
+        return str(title or "").strip().lower().startswith("[sliced]")
+
     def create_project(self, payload: ProjectCreateRequest) -> ProjectResponse:
         row = self.project_repository.create_project(
             name=payload.name,
             slug=payload.slug,
             description=payload.description,
             status=payload.status,
+            average_velocity_per_sprint=payload.average_velocity_per_sprint,
         )
+        self.project_team_repository.ensure_default_members(str(row["id"]))
         project = self.project_repository.get_project(str(row["id"]))
         if project is None:
             raise RuntimeError("Project lookup failed after create.")
@@ -560,8 +1262,23 @@ class PipelineService:
             slug=payload.slug,
             description=payload.description,
             status=payload.status,
+            average_velocity_per_sprint=payload.average_velocity_per_sprint,
         )
         return ProjectResponse(**row)
+
+    def get_project_team(self, project_id: str) -> ProjectTeamResponse:
+        project = self.project_repository.get_project(project_id)
+        if project is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+        self.project_team_repository.ensure_default_members(project_id)
+        members = self.project_team_repository.list_members(project_id)
+        velocity = int(project.get("average_velocity_per_sprint") or 24)
+        return ProjectTeamResponse(
+            project_id=project["id"],
+            average_velocity_per_sprint=velocity,
+            minimum_ready_backlog_target=velocity * 2,
+            team_members=[ProjectTeamMember(**row) for row in members],
+        )
 
     def create_workshop_record(self, payload: WorkshopCreateRequest) -> WorkshopResponse:
         self._ensure_project_exists(str(payload.project_id))
@@ -717,10 +1434,13 @@ class PipelineService:
         self._ensure_project_exists(str(payload.project_id))
         if payload.source_feature_id is not None:
             self._ensure_project_feature_exists(str(payload.source_feature_id), str(payload.project_id))
+        if payload.source_story_id is not None:
+            self._ensure_project_story_exists(str(payload.source_story_id), str(payload.project_id))
         row = self.project_story_repository.create_story(
             project_id=str(payload.project_id),
             source_type=payload.source_type,
             source_feature_id=str(payload.source_feature_id) if payload.source_feature_id is not None else None,
+            source_story_id=str(payload.source_story_id) if payload.source_story_id is not None else None,
             status=payload.status,
             generator_type=payload.generator_type,
             skill_id=str(payload.skill_id) if payload.skill_id is not None else None,
@@ -751,13 +1471,16 @@ class PipelineService:
         self,
         project_id: str | None = None,
         source_feature_id: str | None = None,
+        source_story_id: str | None = None,
         status: str | None = None,
     ) -> ProjectStoryListResponse:
         if project_id is not None:
             self._ensure_project_exists(project_id)
         if source_feature_id is not None:
             self._ensure_project_feature_exists(source_feature_id, project_id)
-        rows = self.project_story_repository.list_stories(project_id, source_feature_id, status)
+        if source_story_id is not None:
+            self._ensure_project_story_exists(source_story_id, project_id)
+        rows = self.project_story_repository.list_stories(project_id, source_feature_id, source_story_id, status)
         return ProjectStoryListResponse(stories=[ProjectStorySummary(**row) for row in rows])
 
     def get_project_feature(self, feature_id: str) -> ProjectFeatureResponse:
@@ -803,10 +1526,13 @@ class PipelineService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project story not found.")
         if payload.source_feature_id is not None:
             self._ensure_project_feature_exists(str(payload.source_feature_id), str(current["project_id"]))
+        if payload.source_story_id is not None:
+            self._ensure_project_story_exists(str(payload.source_story_id), str(current["project_id"]))
         row = self.project_story_repository.update_story(
             story_id,
             source_type=payload.source_type,
             source_feature_id=str(payload.source_feature_id) if payload.source_feature_id is not None else None,
+            source_story_id=str(payload.source_story_id) if payload.source_story_id is not None else None,
             status=payload.status,
             generator_type=payload.generator_type,
             skill_id=str(payload.skill_id) if payload.skill_id is not None else None,
@@ -839,6 +1565,14 @@ class PipelineService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project feature does not belong to the specified project.")
         return row
 
+    def _ensure_project_story_exists(self, story_id: str, project_id: str | None = None) -> dict:
+        row = self.project_story_repository.get_story(story_id)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project story not found.")
+        if project_id is not None and str(row["project_id"]) != str(project_id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project story does not belong to the specified project.")
+        return row
+
     def _ensure_workshop_exists(self, workshop_id: str) -> None:
         if self.workshop_repository.get_workshop(workshop_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workshop not found.")
@@ -852,8 +1586,20 @@ class PipelineService:
     def _get_active_feature_spec_skill(self) -> dict:
         return self.skill_repository.get_active_skill("feature_spec") or default_feature_spec_skill()
 
+    def _get_active_feature_refinement_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("feature_refinement") or default_feature_refinement_skill()
+
+    def _get_active_feature_prioritization_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("feature_prioritization") or default_feature_prioritization_skill()
+
     def _get_active_story_spec_skill(self) -> dict:
         return self.skill_repository.get_active_skill("story_spec") or default_story_spec_skill()
+
+    def _get_active_story_refinement_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("story_refinement") or default_story_refinement_skill()
+
+    def _get_active_story_slicing_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("story_slicing") or default_story_slicing_skill()
 
     def _resolve_workshop_status_from_workflow(self, workflow_status: str | None) -> str | None:
         if workflow_status == "completed":
@@ -909,6 +1655,98 @@ class PipelineService:
         feature = feature.model_copy(update={"feature_id": str(persisted["id"])})
         return FeatureGeneratorResponse(feature=feature)
 
+    def run_feature_refiner(self, payload: FeatureRefinerRequest) -> FeatureRefinerResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        current_rows = [
+            ProjectFeatureResponse(**self._ensure_project_feature_exists(str(feature_id), str(payload.project_id)))
+            for feature_id in payload.feature_ids
+        ]
+        if not self.feature_refinement_llm_service.enabled:
+            raise RuntimeError("AI feature refinement is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_feature_refinement_skill()
+        try:
+            refined_results = self.feature_refinement_llm_service.refine(
+                payload,
+                current_rows,
+                skill=active_skill,
+            )
+        except Exception as exc:
+            self.logger.exception("AI feature refinement failed")
+            raise RuntimeError("AI feature refinement failed. Please retry.") from exc
+
+        persisted_results = []
+        for result in refined_results:
+            feature = result.feature
+            row = self.project_feature_repository.update_feature(
+                str(feature.id),
+                generator_type="feature_refiner",
+                skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
+                skill_name=active_skill.get("name"),
+                title=feature.title,
+                summary=feature.summary,
+                body=feature.body,
+            )
+            persisted_results.append(
+                result.model_copy(update={"feature": ProjectFeatureResponse(**row)})
+            )
+        return FeatureRefinerResponse(results=persisted_results)
+
+    def run_feature_prioritizer(self, payload: FeaturePrioritizerRequest) -> FeaturePrioritizerResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        current_rows = [
+            ProjectFeatureResponse(**self._ensure_project_feature_exists(str(feature_id), str(payload.project_id)))
+            for feature_id in payload.feature_ids
+        ]
+        if not self.feature_prioritization_llm_service.enabled:
+            raise RuntimeError("AI feature prioritization is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_feature_prioritization_skill()
+        try:
+            prioritization_summary, prioritized_results = self.feature_prioritization_llm_service.prioritize(
+                payload,
+                current_rows,
+                skill=active_skill,
+            )
+        except Exception as exc:
+            self.logger.exception("AI feature prioritization failed")
+            raise RuntimeError("AI feature prioritization failed. Please retry.") from exc
+
+        persisted_results = []
+        for result in prioritized_results:
+            feature = result.feature
+            prioritization_payload = {
+                "framework": result.prioritization.framework,
+                "impact_score": result.prioritization.impact_score,
+                "effort_score": result.prioritization.effort_score,
+                "strategic_alignment_score": result.prioritization.strategic_alignment_score,
+                "urgency_score": result.prioritization.urgency_score,
+                "confidence_score": result.prioritization.confidence_score,
+                "overall_priority_score": result.prioritization.overall_priority_score,
+                "recommended_rank": result.prioritization.recommended_rank,
+                "priority_bucket": result.prioritization.priority_bucket,
+                "rationale": result.prioritization.rationale,
+                "tradeoffs": result.prioritization.tradeoffs,
+                "recommendation": result.prioritization.recommendation,
+                "summary": result.prioritization_summary,
+            }
+            row = self.project_feature_repository.update_feature(
+                str(feature.id),
+                generator_type="feature_prioritizer",
+                skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
+                skill_name=active_skill.get("name"),
+                prioritization=prioritization_payload,
+            )
+            persisted_results.append(
+                result.model_copy(update={"feature": ProjectFeatureResponse(**row)})
+            )
+
+        return FeaturePrioritizerResponse(
+            results=sorted(
+                persisted_results,
+                key=lambda item: item.prioritization.recommended_rank,
+            ),
+            prioritization_summary=prioritization_summary,
+        )
+
     def run_story_generator(self, payload: StoryGeneratorRequest) -> StoryGeneratorResponse:
         self._ensure_project_exists(str(payload.project_id))
         source_feature = self._ensure_project_feature_exists(str(payload.source_feature_id), str(payload.project_id))
@@ -931,6 +1769,7 @@ class PipelineService:
                 project_id=str(payload.project_id),
                 source_type=payload.source_type,
                 source_feature_id=str(payload.source_feature_id),
+                source_story_id=None,
                 status=story.status,
                 generator_type="story_generator",
                 skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
@@ -948,6 +1787,101 @@ class PipelineService:
             )
             persisted.append(story.model_copy(update={"story_id": str(row["id"])}))
         return StoryGeneratorResponse(stories=persisted)
+
+    def run_story_refiner(self, payload: StoryRefinerRequest) -> StoryRefinerResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        current_rows = [
+            ProjectStoryResponse(**self._ensure_project_story_exists(str(story_id), str(payload.project_id)))
+            for story_id in payload.story_ids
+        ]
+        if not self.story_refinement_llm_service.enabled:
+            raise RuntimeError("AI story refinement is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_story_refinement_skill()
+        try:
+            refined_results = self.story_refinement_llm_service.refine(
+                payload,
+                current_rows,
+                skill=active_skill,
+            )
+        except Exception as exc:
+            self.logger.exception("AI story refinement failed")
+            raise RuntimeError("AI story refinement failed. Please retry.") from exc
+
+        persisted_results = []
+        for result in refined_results:
+            story = result.story
+            row = self.project_story_repository.update_story(
+                str(story.id),
+                generator_type="story_refiner",
+                skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
+                skill_name=active_skill.get("name"),
+                title=story.title,
+                user_story=story.user_story,
+                as_a=story.as_a,
+                i_want=story.i_want,
+                so_that=story.so_that,
+                description=story.description,
+                acceptance_criteria=story.acceptance_criteria,
+                edge_cases=story.edge_cases,
+                dependencies=story.dependencies,
+                priority=story.priority,
+            )
+            persisted_results.append(
+                result.model_copy(update={"story": ProjectStoryResponse(**row)})
+            )
+        return StoryRefinerResponse(results=persisted_results)
+
+    def run_story_slicer(self, payload: StorySlicerRequest) -> StorySlicerResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        source_story = ProjectStoryResponse(
+            **self._ensure_project_story_exists(str(payload.source_story_id), str(payload.project_id))
+        )
+        if not self.story_slicer_llm_service.enabled:
+            raise RuntimeError("AI story slicing is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_story_slicing_skill()
+        try:
+            sliced_result = self.story_slicer_llm_service.slice(
+                payload,
+                source_story,
+                skill=active_skill,
+            )
+        except Exception as exc:
+            self.logger.exception("AI story slicing failed")
+            raise RuntimeError("AI story slicing failed. Please retry.") from exc
+
+        persisted_children: list[ProjectStoryResponse] = []
+        for story in sliced_result.get("stories", []):
+            row = self.project_story_repository.create_story(
+                project_id=str(payload.project_id),
+                source_type="project_story",
+                source_feature_id=str(source_story.source_feature_id) if source_story.source_feature_id is not None else None,
+                source_story_id=str(source_story.id),
+                status="draft",
+                generator_type="story_slicer",
+                skill_id=str(active_skill.get("id")) if active_skill.get("id") else None,
+                skill_name=active_skill.get("name"),
+                title=story["title"],
+                user_story=story["user_story"],
+                as_a=story["as_a"],
+                i_want=story["i_want"],
+                so_that=story["so_that"],
+                description=story["description"],
+                acceptance_criteria=story["acceptance_criteria"],
+                edge_cases=story["edge_cases"],
+                dependencies=story["dependencies"],
+                priority=story["priority"],
+            )
+            persisted_children.append(ProjectStoryResponse(**row))
+
+        updated_source = self.project_story_repository.update_story(
+            str(source_story.id),
+            status="sliced",
+        )
+        return StorySlicerResponse(
+            source_story=ProjectStoryResponse(**updated_source),
+            stories=persisted_children,
+            slicing_summary=str(sliced_result.get("slicing_summary", "")).strip(),
+        )
 
     def generate_prd(self, payload: PRDGenerateRequest) -> PRDGenerateResponse:
         prd = PRDDocument(

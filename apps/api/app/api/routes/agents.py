@@ -4,8 +4,16 @@ from app.api.deps import get_pipeline_service
 from app.schemas.agents import (
     FeatureGeneratorRequest,
     FeatureGeneratorResponse,
+    FeaturePrioritizerRequest,
+    FeaturePrioritizerResponse,
+    FeatureRefinerRequest,
+    FeatureRefinerResponse,
     StoryGeneratorRequest,
     StoryGeneratorResponse,
+    StoryRefinerRequest,
+    StoryRefinerResponse,
+    StorySlicerRequest,
+    StorySlicerResponse,
 )
 from app.services.pipeline_service import PipelineService
 
@@ -23,6 +31,28 @@ async def run_feature_generator(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
+@router.post("/feature-refiner", response_model=FeatureRefinerResponse)
+async def run_feature_refiner(
+    payload: FeatureRefinerRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> FeatureRefinerResponse:
+    try:
+        return service.run_feature_refiner(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/feature-prioritizer", response_model=FeaturePrioritizerResponse)
+async def run_feature_prioritizer(
+    payload: FeaturePrioritizerRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> FeaturePrioritizerResponse:
+    try:
+        return service.run_feature_prioritizer(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
 @router.post("/story-generator", response_model=StoryGeneratorResponse)
 async def run_story_generator(
     payload: StoryGeneratorRequest,
@@ -30,5 +60,27 @@ async def run_story_generator(
 ) -> StoryGeneratorResponse:
     try:
         return service.run_story_generator(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/story-refiner", response_model=StoryRefinerResponse)
+async def run_story_refiner(
+    payload: StoryRefinerRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> StoryRefinerResponse:
+    try:
+        return service.run_story_refiner(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/story-slicer", response_model=StorySlicerResponse)
+async def run_story_slicer(
+    payload: StorySlicerRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> StorySlicerResponse:
+    try:
+        return service.run_story_slicer(payload)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc

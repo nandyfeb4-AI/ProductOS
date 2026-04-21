@@ -4,6 +4,550 @@ This file is the active source of truth for Claude Code UI work and Codex backen
 
 If anything in older chat history conflicts with this file, this file wins.
 
+## Global Product Rule
+
+- fail fast, fail clearly
+- do not fabricate fallback data for AI-driven workflow results
+- if an agent, evaluator, or workflow step returns missing, malformed, or incomplete output:
+  - stop the flow
+  - surface a clear error message to the user
+  - do not silently substitute placeholder scores, fake readiness, or synthetic refined content
+- user decisions in ProductOS must be based on real validated output, not optimistic fallbacks
+
+## Active Backlog Refinement Workflow Context
+
+The next human-in-the-loop agentic workflow backend is now in place:
+
+- `Backlog Refinement`
+
+This is intentionally a workflow, not a standalone agent.
+
+It uses:
+
+- Jira backlog stories as the source of truth
+- project team velocity / backlog target from the Team area
+- routing logic that places work into execution buckets before the PM approves
+
+### Backend Now Available
+
+- workflow definition:
+  - `workflow_type = backlog_refinement`
+  - defaults to:
+    - `workflow_definition_key = backlog_refinement`
+    - `workflow_definition_label = Backlog Refinement`
+- `GET /api/workflows/backlog-refinement/source?project_id={project_id}&project_key={jira_project_key}`
+- `POST /api/workflows/backlog-refinement/analyze`
+- `POST /api/workflows/backlog-refinement/execute`
+- `POST /api/jobs/backlog-refinement-analysis`
+- `POST /api/jobs/backlog-refinement-execution`
+
+### Response Shape Notes
+
+- `GET /api/workflows/backlog-refinement/source` returns:
+  - `jira_project_key`
+  - `features`
+  - `stories`
+  - `total_story_points`
+- `POST /api/workflows/backlog-refinement/analyze` returns:
+  - `workflow_id`
+  - `jira_project_key`
+  - `health`
+  - top-level bucket arrays:
+    - `generate`
+    - `refine`
+    - `slice`
+    - `ready`
+  - `summary`
+- `GET /api/projects/{project_id}/team` returns:
+  - `average_velocity_per_sprint`
+  - `minimum_ready_backlog_target`
+  - `team_members`
+
+### Current MVP Model
+
+- source system is Jira only for this first pass
+- source items are:
+  - Jira epics/features
+  - Jira backlog stories/tasks
+- story points are read from Jira and summed at the backlog level
+- project velocity comes from:
+  - `GET /api/projects/{project_id}/team`
+- backlog target is:
+  - `2 x average_velocity_per_sprint`
+- this target is a minimum healthy backlog floor
+- it is not a ceiling and does not block refinement when backlog points exceed it
+- the workflow currently:
+  1. reads prioritized Jira epics and backlog stories
+  2. measures ready backlog points against target
+  3. routes items into buckets:
+     - `generate`
+     - `refine`
+     - `slice`
+     - `ready`
+  4. lets the PM approve the bucketed plan
+- execution is now wired to actually mutate Jira backlog items:
+   - `generate` creates new Jira stories under the selected feature/epic
+   - `refine` updates the selected Jira story in place
+   - `slice` rewrites the original Jira story as one smaller split story and creates new sibling Jira stories for the remaining split scope
+- execution is intentionally processed one approved item at a time to avoid overwhelming the LLM or Jira
+
+### Current Routing Rules
+
+- feature with no stories:
+  - `generate`
+- feature with fewer than 3 linked stories:
+  - `generate`
+- story with missing story points:
+  - `refine`
+- story that fails the stronger `Story Refiner` quality evaluation:
+  - `refine`
+- story with story points greater than 8:
+  - `slice`
+- story with acceptable size and strong `Story Refiner` evaluation:
+  - `ready`
+
+Important routing note:
+
+- backlog refinement now reuses the stronger `Story Refiner` evaluation path and active skill during analysis
+- this means `Ready` should no longer be treated as a shallow structural pass
+- stories are evaluated in small internal backend batches for reliability, but the UI should still present analysis as one continuous run
+- do not surface internal batching mechanics to the user unless we later add explicit detailed job telemetry
+
+### State Payload Keys
+
+- `backlog_refinement_source`
+- `backlog_refinement_analysis`
+- `backlog_refinement_execution`
+
+### What Claude Should Do Next
+
+Build the first UI for the `Backlog Refinement` workflow.
+
+Recommended first pass:
+
+- add a new workflow definition card on the `Workflows` page:
+  - `Backlog Refinement`
+- create a dedicated workflow page/surface for it
+- source step:
+  - pick Jira project
+  - load source data from:
+    - `GET /api/workflows/backlog-refinement/source`
+  - show:
+    - source `total_story_points`
+    - velocity from `GET /api/projects/{project_id}/team`
+    - target ready backlog points from `GET /api/projects/{project_id}/team`
+- analysis step:
+  - use the async endpoint:
+    - `POST /api/jobs/backlog-refinement-analysis`
+  - restore/poll using the existing job websocket/polling pattern
+- review step:
+  - visualize routed work into buckets:
+    - `Generate`
+    - `Refine`
+    - `Slice`
+    - `Ready`
+  - use the top-level arrays returned by the analyze response:
+    - `generate`
+    - `refine`
+    - `slice`
+    - `ready`
+  - show backlog health summary:
+    - ready points
+    - target points
+    - shortfall
+- approval step:
+  - allow the PM to approve which items should stay in each actionable bucket
+  - submit approval using the async job endpoint:
+    - `POST /api/jobs/backlog-refinement-execution`
+  - do not keep execution as a long blocking synchronous page action
+  - use the existing job websocket/polling pattern for execution progress and completion too
+
+- done / results step:
+  - show execution summary returned from the execute response:
+    - `execution.created_story_count`
+    - `execution.updated_story_count`
+    - `execution.sliced_story_count`
+  - show per-item execution results from:
+    - `results`
+  - for each result, show:
+    - bucket
+    - source issue key
+    - status
+    - created Jira issues
+    - updated Jira issue
+    - message
+
+Important slice behavior note:
+
+- custom slicing should now behave like a real split even without Jira's native split action
+- when a story is sliced:
+  - the original Jira story remains active
+  - the original Jira story is updated to the first smaller split story
+  - additional split stories are created as new sibling Jira stories
+- UI language should not say the original story was replaced or merely marked as sliced
+- for slice results, emphasize:
+  - updated original story
+  - newly created sibling stories
+
+Important:
+
+- keep this first pass explicitly human-in-the-loop
+- the workflow now does execute the approved buckets after approval
+- but keep the user approval gate before execution
+- the main goal of this pass is:
+  - inspect
+  - route
+  - visualize
+  - approve
+  - execute
+- the bucket visualization should make routing legible and trustworthy
+
+## Active Team Capacity Context
+
+The next prerequisite backend foundation is now in place:
+
+- `Project Team Capacity`
+
+This is intentionally not an agent or workflow yet.
+
+It exists to support future backlog-management workflows, especially:
+
+- `Backlog Refinement`
+
+### Backend Now Available
+
+- `GET /api/projects/{project_id}`
+  - now includes:
+    - `average_velocity_per_sprint`
+    - `team_member_count`
+- `PATCH /api/projects/{project_id}`
+  - now accepts:
+    - `average_velocity_per_sprint`
+- `GET /api/projects/{project_id}/team`
+
+### Current MVP Model
+
+- every project has a project-level average velocity
+- default velocity is:
+  - `24`
+- every project now has a seeded cross-functional team of 9 members
+- current team response includes:
+  - `project_id`
+  - `average_velocity_per_sprint`
+  - `minimum_ready_backlog_target`
+  - `team_members`
+- backlog target is currently derived as:
+  - `2 x average_velocity_per_sprint`
+
+### Seeded Team Shape
+
+- Product Manager
+- Product Designer
+- Frontend Engineer
+- Backend Engineer
+- Full Stack Engineer
+- QA Engineer
+- DevOps Engineer
+- Data Analyst
+- Tech Lead
+
+### What Claude Should Do Next
+
+Build the first real `Team` area instead of the current placeholder.
+
+Recommended first pass:
+
+- replace the current Team placeholder page with a real team-capacity page
+- load the active project team from:
+  - `GET /api/projects/{project_id}/team`
+- show:
+  - project team members
+  - role / discipline
+  - seniority
+  - allocation
+  - project average velocity
+  - derived ready-backlog target
+- allow editing project average velocity using:
+  - `PATCH /api/projects/{project_id}`
+- show the backlog target clearly as:
+  - `Minimum ready backlog target = 2 x velocity`
+- keep team members read-only for this first pass
+
+Important:
+
+- do not build full team-member CRUD yet
+- do not infer velocity from member allocations yet
+- do not turn this into sprint planning yet
+- this is a prerequisite capacity layer for future `Backlog Refinement`
+
+Frontend helper already available at:
+
+- `apps/web/src/api/projects.js`
+
+## Active Feature Prioritization Context
+
+The next reusable agent backend is now in place:
+
+- `Feature Prioritizer`
+
+And the next reusable cross-project skill is now in place:
+
+- `Feature Prioritization Skill`
+
+### Backend Now Available
+
+- `POST /api/agents/feature-prioritizer`
+- `POST /api/jobs/feature-prioritization`
+- `GET /api/project-features?project_id={project_id}`
+- `GET /api/project-features/{feature_id}`
+- `PATCH /api/project-features/{feature_id}`
+
+### Current MVP Model
+
+- `Feature Prioritizer` takes persisted project features as input
+- request shape is:
+  - `project_id`
+  - `source_type = project_feature`
+  - `feature_ids`
+  - optional `prioritization_goal`
+  - optional `constraints`
+  - optional `supporting_context`
+- it automatically uses the active global `feature_prioritization` skill
+- it evaluates each selected feature using a prioritization framework
+- it persists prioritization metadata back into `project_features.prioritization`
+- it returns both:
+  - updated persisted feature data
+  - ranked prioritization assessment
+  - per-item prioritization summary
+  - overall prioritization summary
+
+### What Claude Should Do Next
+
+Build the first project-level Feature Prioritization UI using persisted project features as the source.
+
+Recommended first pass:
+
+- add `Feature Prioritizer` to the project `Agents` tab
+- allow selection of one or more persisted project features
+- show the active `Feature Prioritization Skill` in the prioritizer context
+- extend the `Skills` page to surface `feature_prioritization` alongside the existing feature, story generation, story refinement, story slicing, and feature refinement skills
+- make the result view show:
+  - ranked features
+  - framework
+  - score breakdown
+  - priority bucket
+  - rationale / tradeoffs
+  - recommendation
+  - overall prioritization summary
+- from the project `Features` surface, add a contextual action to send persisted features into `Feature Prioritizer`
+
+Important:
+
+- keep this v1 scoped to persisted `project_features`
+- do not fake Jira/manual inputs in UI yet
+- do not create net-new features from this agent
+- do not treat this as a drag-and-drop Jira reorder tool
+- backend contract supports one or many features, and the UI can start with multi-select if convenient
+- frontend helper is already available at:
+  - `apps/web/src/api/agents.js`
+  - `apps/web/src/api/projectFeatures.js`
+
+## Active Feature Hardening Workflow Context
+
+The next human-in-the-loop agentic workflow backend is now in place:
+
+- `Feature Hardening`
+
+This is intentionally a workflow, not a standalone agent.
+
+It uses:
+
+- Jira epics as the source of truth
+- `Feature Refiner` behavior under the hood for evaluation + hardening
+- an explicit review step before syncing changes back to Jira
+
+### Backend Now Available
+
+- workflow definition:
+  - `workflow_type = feature_hardening`
+  - defaults to:
+    - `workflow_definition_key = feature_hardening`
+    - `workflow_definition_label = Feature Hardening`
+- `GET /api/workflows/feature-hardening/source?project_key={jira_project_key}`
+- `POST /api/workflows/feature-hardening/run`
+- `POST /api/workflows/feature-hardening/publish`
+- `POST /api/jobs/feature-hardening`
+- existing generic workflow-run APIs still apply:
+  - `POST /api/workflows`
+  - `GET /api/workflows`
+  - `PATCH /api/workflows/{workflow_id}`
+  - `GET /api/workflows/{workflow_id}`
+
+### Current MVP Model
+
+- source system is Jira only for this first pass
+- source items are existing Jira epics
+- PM should not re-enter the feature manually
+- workflow shape is:
+  - choose Jira project
+  - pull epics
+  - select epics to harden
+  - run AI hardening
+  - review scores + refined feature output
+  - publish approved changes back to Jira
+- `Feature Hardening` stores workflow state in `workflow_runs.state_payload`
+- current workflow state keys are:
+  - `feature_hardening_source`
+  - `feature_hardening_results`
+  - `feature_hardening_publish`
+- current step progression is:
+  - `source`
+  - `review`
+  - `sync`
+
+### Request Shapes
+
+- source listing:
+  - `GET /api/workflows/feature-hardening/source?project_key=ABC`
+
+- hardening run:
+  - `project_id`
+  - optional `workflow_id`
+  - `source_type = jira_project`
+  - `jira_project_key`
+  - `issue_keys`
+  - optional `refinement_goal`
+  - optional `constraints`
+  - optional `supporting_context`
+
+- publish:
+  - `project_id`
+  - optional `workflow_id`
+  - `jira_project_key`
+  - `results`
+    - each item includes:
+      - `issue_key`
+      - `refined_feature`
+
+### What Claude Should Do Next
+
+Build the first UI for the new `Feature Hardening` workflow.
+
+Recommended first pass:
+
+- add a second workflow definition card on the `Workflows` page:
+  - `Feature Hardening`
+- keep `Discovery to Delivery` intact
+- do not treat `Feature Hardening` as an agent page
+- create a dedicated workflow UI surface/page for `Feature Hardening`
+- starting the workflow should:
+  - create a workflow run with:
+    - `workflow_type = feature_hardening`
+    - project-scoped `project_id`
+  - then move into the workflow page
+- in the source step:
+  - let the PM pick a Jira project
+  - load epics from:
+    - `GET /api/workflows/feature-hardening/source`
+  - allow selecting a subset for hardening
+- for the hardening action:
+  - use the async endpoint:
+    - `POST /api/jobs/feature-hardening`
+  - and existing job polling / websocket patterns
+- in the review step, show:
+  - original Jira epic
+  - evaluation scores
+  - needs-refinement signal
+  - refinement summary
+  - refined feature output
+- in the publish step:
+  - let the PM explicitly push approved hardened features back to Jira
+  - use:
+    - `POST /api/workflows/feature-hardening/publish`
+- resuming a `Feature Hardening` run should restore from `state_payload`
+- update workflow resume/navigation logic so it is no longer hardcoded only for the discovery pipeline
+
+Important:
+
+- this is still human-in-the-loop
+- do not auto-publish to Jira
+- do not ask the PM to retype feature input
+- do not invent non-Jira sources yet
+- do not fold this into the `Agents` tab
+- use the workflow framing:
+  - workflow = orchestrated PM routine
+  - agent = standalone reusable capability
+
+Frontend helper already available at:
+
+- `apps/web/src/api/workflows.js`
+
+## Active Workflow Definitions Context
+
+Workflow executions now have an explicit relationship to the agentic workflow they belong to.
+
+This is the first step toward making the `Workflows` surface show named workflow types such as `Discovery to Delivery` instead of only generic workshop runs.
+
+### Backend Now Available
+
+- `workflow_runs` now stores:
+  - `workflow_definition_key`
+  - `workflow_definition_label`
+- `POST /api/workflows`
+  - accepts optional:
+    - `workflow_definition_key`
+    - `workflow_definition_label`
+- `PATCH /api/workflows/{workflow_id}`
+  - accepts optional:
+    - `workflow_definition_key`
+    - `workflow_definition_label`
+- `GET /api/workflows`
+  - supports optional:
+    - `workflow_definition_key`
+
+### Current MVP Model
+
+- the existing workshop-led end-to-end flow is the first named agentic workflow:
+  - `workflow_definition_key = discovery_to_delivery`
+  - `workflow_definition_label = Discovery to Delivery`
+- new workshop workflow runs now default to that workflow definition
+- existing persisted workshop workflow runs are backfilled to that same definition
+- `workflow_type` still exists and remains `workshop`
+- think of the model as:
+  - `workflow_type`
+    - low-level technical run family
+  - `workflow_definition_key`
+    - product-level workflow template / agentic workflow identity
+
+### What Claude Should Do Next
+
+Rework the UI so the `Workflows` surface reflects workflow definitions, not just flat run records.
+
+Recommended first pass:
+
+- keep `Workflows` as the left-nav / project-nav label
+- inside the page, introduce workflow definition cards or sections
+- the first workflow definition should be:
+  - `Discovery to Delivery`
+- group or frame the current workshop runs under that workflow definition
+- stop presenting the current workflow as a generic unnamed workflow
+- on workflow cards/lists, use:
+  - `workflow_definition_label`
+  - not just `workflow_type`
+- when loading workflow runs for the current workshop flow, filter by:
+  - `workflow_definition_key = discovery_to_delivery`
+- update any “new workflow” or “resume workflow” copy so it refers to:
+  - `Discovery to Delivery`
+  - not a generic workflow name
+
+Important:
+
+- do not invent additional workflow definitions in UI yet
+- do not remove the existing run-history behavior
+- this pass is mostly an information architecture / labeling improvement backed by the new workflow-definition fields
+- frontend helper already supports the new filter in:
+  - `apps/web/src/api/workflows.js`
+
 ## Active Generated Features Context
 
 Generated features are now first-class persisted project assets.

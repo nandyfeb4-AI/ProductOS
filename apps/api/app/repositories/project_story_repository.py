@@ -13,6 +13,7 @@ class ProjectStoryRepository:
         project_id: str,
         source_type: str,
         source_feature_id: str | None,
+        source_story_id: str | None,
         status: str,
         generator_type: str,
         skill_id: str | None,
@@ -36,6 +37,7 @@ class ProjectStoryRepository:
                 project_id,
                 source_type,
                 source_feature_id,
+                source_story_id,
                 status,
                 generator_type,
                 skill_id,
@@ -58,6 +60,7 @@ class ProjectStoryRepository:
                 %(project_id)s::uuid,
                 %(source_type)s,
                 %(source_feature_id)s::uuid,
+                %(source_story_id)s::uuid,
                 %(status)s,
                 %(generator_type)s,
                 %(skill_id)s::uuid,
@@ -82,6 +85,7 @@ class ProjectStoryRepository:
             "project_id": project_id,
             "source_type": source_type,
             "source_feature_id": source_feature_id,
+            "source_story_id": source_story_id,
             "status": status,
             "generator_type": generator_type,
             "skill_id": skill_id,
@@ -109,17 +113,20 @@ class ProjectStoryRepository:
         self,
         project_id: str | None = None,
         source_feature_id: str | None = None,
+        source_story_id: str | None = None,
         status: str | None = None,
     ) -> list[dict[str, Any]]:
         query = self._select_base() + """
             where (%(project_id)s::uuid is null or ps.project_id = %(project_id)s::uuid)
               and (%(source_feature_id)s::uuid is null or ps.source_feature_id = %(source_feature_id)s::uuid)
+              and (%(source_story_id)s::uuid is null or ps.source_story_id = %(source_story_id)s::uuid)
               and (%(status)s::text is null or ps.status = %(status)s::text)
             order by ps.updated_at desc, ps.created_at desc
         """
         return self._fetch_all(query, {
             "project_id": project_id,
             "source_feature_id": source_feature_id,
+            "source_story_id": source_story_id,
             "status": status,
         })
 
@@ -136,6 +143,7 @@ class ProjectStoryRepository:
         *,
         source_type: str | None = None,
         source_feature_id: str | None = None,
+        source_story_id: str | None = None,
         status: str | None = None,
         generator_type: str | None = None,
         skill_id: str | None = None,
@@ -159,6 +167,7 @@ class ProjectStoryRepository:
             set
                 source_type = coalesce(%(source_type)s, source_type),
                 source_feature_id = coalesce(%(source_feature_id)s::uuid, source_feature_id),
+                source_story_id = coalesce(%(source_story_id)s::uuid, source_story_id),
                 status = coalesce(%(status)s, status),
                 generator_type = coalesce(%(generator_type)s, generator_type),
                 skill_id = coalesce(%(skill_id)s::uuid, skill_id),
@@ -183,6 +192,7 @@ class ProjectStoryRepository:
             "story_id": story_id,
             "source_type": source_type,
             "source_feature_id": source_feature_id,
+            "source_story_id": source_story_id,
             "status": status,
             "generator_type": generator_type,
             "skill_id": skill_id,
@@ -215,6 +225,7 @@ class ProjectStoryRepository:
                 ps.project_id,
                 ps.source_type,
                 ps.source_feature_id,
+                ps.source_story_id,
                 ps.status,
                 ps.generator_type,
                 ps.skill_id,

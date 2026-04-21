@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 class WorkflowRunBase(BaseModel):
     workflow_type: str = "workshop"
+    workflow_definition_key: Optional[str] = None
+    workflow_definition_label: Optional[str] = None
     project_id: Optional[UUID] = None
     workshop_id: Optional[UUID] = None
     title: Optional[str] = None
@@ -25,6 +27,8 @@ class WorkflowRunCreateRequest(WorkflowRunBase):
 
 
 class WorkflowRunUpdateRequest(BaseModel):
+    workflow_definition_key: Optional[str] = None
+    workflow_definition_label: Optional[str] = None
     project_id: Optional[UUID] = None
     workshop_id: Optional[UUID] = None
     title: Optional[str] = None

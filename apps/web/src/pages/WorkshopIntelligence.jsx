@@ -412,6 +412,8 @@ export default function WorkshopIntelligence({ onNavigate, project }) {
         const wf = await createWorkflow({
           title: title || "Untitled Workshop",
           workflow_type: "workshop",
+          workflow_definition_key: "discovery_to_delivery",
+          workflow_definition_label: "Discovery to Delivery",
           ...(project?.id    ? { project_id:  project.id } : {}),
           ...(workshopId     ? { workshop_id: workshopId } : {}),
         });
