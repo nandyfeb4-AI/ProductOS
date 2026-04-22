@@ -1,0 +1,41 @@
+{
+  "summary": "Frontend-only visual/testid/responsive testing of ProductOS landing page. All 40+ data-testids present, hero row-status rotation (~2.4s) working, WatchItWork feed rotation (~2.8s) working after scroll-into-view, 0 console errors, CTAs functional (anchor hrefs resolve to hash fragments). Horizontal overflow detected at 375px mobile viewport (scrollWidth=465 vs clientWidth=375, ~90px overflow) caused by WatchItWork section.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Mobile 375px viewport (iPhone-class)",
+        "issues": [
+          "Horizontal overflow of ~90px (document scrollWidth=465 > clientWidth=375). Root cause: WatchItWork section children (lg:col-span-5 left copy block and lg:col-span-7 feed card) render at ~441px width. The primary offender is the bottom console strip inside <watch-feed> which is a flex row of non-wrapping spans ('14:32:07 agent.story_slicer emitted 7 stories · PROD-214') that together exceed 327px (375 minus px-6 gutters). Secondary candidates: the Connectors orbit rings (w-[320px]) are within bounds but tight. Fix hint: add `overflow-x-hidden` on the console strip (or `flex-wrap`/`text-xs`/`truncate`), and/or add `overflow-x-hidden` to <section data-testid=watch-it-work-section> or to body.",
+          "Hero headline 'Run your product workflow. End-to-end.' uses non-breaking hyphens (&#8209;) in 'End-to-end' — text-[44px] on 375px viewport pushes the word to the right edge (hero bbox width 373px is within tolerance but visually tight). Consider text-[40px] at base with responsive bump."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix mobile horizontal overflow at <=375px: add `overflow-x-hidden` on the WatchItWork console footer strip (the div with 'agent.story_slicer emitted 7 stories · PROD-214') or wrap its spans, since that flex row of non-wrapping text is the primary cause of ~90px overflow. Quick mitigation: add `overflow-x-hidden` to the outer <div className=\"min-h-screen bg-white ...\"> in Landing.jsx.",
+    "Optional: scale hero h1 down on xs viewport (e.g., text-[36px] at base, text-[44px] at sm) to avoid visual crowding at 375px."
+  ],
+  "critical_code_review_comments": [
+    "Hero.jsx: useEffect at line 21 depends on [tick] and mutates rows by object reference (next.forEach with r.status = ...) — this mutates prev state directly before returning, which can cause stale-state quirks with React StrictMode double-invocation. Should use immutable update: next.map(r => ({...r, status: ...})). Currently works but is fragile.",
+    "WatchItWork.jsx: same pattern — copy.forEach mutating copy[runIdx].status directly. Safer as immutable map.",
+    "Landing.jsx wrapper `<div className=\"min-h-screen bg-white\">` has no `overflow-x-hidden`, which is standard practice for full-bleed landing pages with grid sections.",
+    "Trust.jsx uses `po-marquee` CSS class but only in <div> (no pause-on-hover, no aria-hidden duplication labeling) — accessibility minor.",
+    "All sections correctly use data-testid. Nav links, Hero, WatchItWork feed rows (1-4), flow steps (1-4), capability cards (1-3), connectors inputs/center/outputs, final-cta-primary/secondary, footer — all present.",
+    "Framer Motion animations scroll-triggered correctly (useInView in WatchItWork, whileInView in others). No layout breaks observed."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not in scope)", "frontend": "95%"},
+  "test_credentials": "N/A — static landing page, no auth",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All data-testids verified present (40+). Animations working: Hero row rotation ~2.4s confirmed via inner_html diff; WatchItWork feed rotation ~2.8s confirmed after scrollIntoView (useInView gates the interval). 0 console errors, 0 page errors. CTAs are anchor #hrefs as spec'd (hero-cta-primary -> #login, nav-cta -> #get-started) — URL updates hash only, no route navigation expected. Responsive pass at 1440/1024/768; FAIL at 375 (horizontal overflow 90px caused by WatchItWork console strip + feed card). After main-agent fix, re-run responsive check at 375 and 390px only.",
+  "rca_of_the_issue": "Mobile 375px overflow RCA: (1) Reproduction: set viewport to 375x812, navigate to /, evaluate document.documentElement.scrollWidth (=465) vs clientWidth (=375). (2) Offender scan via getBoundingClientRect shows WatchItWork .lg:col-span-5 (h2 + p + ul) and .lg:col-span-7 (watch-feed card) rendering at 441px width. (3) Primary cause: inside watch-feed, the bottom console strip is a flex row (gap-3) of non-wrapping spans containing 'agent.story_slicer emitted 7 stories · PROD-214' — combined intrinsic width exceeds 327px (375 minus px-6=48 gutters), forcing parent grid children to expand. (4) Mitigation: add `overflow-x-hidden` on the console strip div OR on the outer watch-feed card OR globally on body/Landing wrapper. Safest/least-invasive: add `overflow-x-hidden` to <div className='min-h-screen bg-white text-[#0A0E1A]'> in Landing.jsx."
+}
