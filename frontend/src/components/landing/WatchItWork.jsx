@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence, useInView } from "framer-motion";
+import { motion, useInView } from "framer-motion";
 import { CheckCircle2, Loader2, GitBranch, Sparkles, Layers, Send } from "lucide-react";
 
 const baseFeed = [
@@ -126,56 +126,50 @@ export default function WatchItWork() {
             </div>
 
             <div className="divide-y divide-black/[0.05]">
-              <AnimatePresence initial={false}>
-                {feed.map((f) => {
-                  const Icon = f.icon;
-                  return (
-                    <motion.div
-                      key={f.id + f.status}
-                      initial={{ opacity: 0, y: -6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.35 }}
-                      className="flex items-center justify-between px-5 py-4 hover:bg-black/[0.015] transition-colors"
-                      data-testid={`feed-row-${f.id}`}
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div
-                          className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border ${
-                            f.status === "running"
-                              ? "bg-[#4F7FFF]/10 border-[#4F7FFF]/20 text-[#4F7FFF]"
-                              : f.status === "done"
-                                ? "bg-[#2DD4BF]/10 border-[#2DD4BF]/25 text-[#2DD4BF]"
-                                : "bg-black/[0.03] border-black/[0.06] text-[#8B93A7]"
-                          }`}
-                        >
-                          {f.status === "running" ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : f.status === "done" ? (
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                          ) : (
-                            <Icon className="w-3.5 h-3.5" />
-                          )}
+              {feed.map((f) => {
+                const Icon = f.icon;
+                return (
+                  <div
+                    key={f.id}
+                    className="flex items-center justify-between px-5 py-4 hover:bg-black/[0.015] transition-colors"
+                    data-testid={`feed-row-${f.id}`}
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div
+                        className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border transition-colors duration-500 ${
+                          f.status === "running"
+                            ? "bg-[#4F7FFF]/10 border-[#4F7FFF]/20 text-[#4F7FFF]"
+                            : f.status === "done"
+                              ? "bg-[#2DD4BF]/10 border-[#2DD4BF]/25 text-[#2DD4BF]"
+                              : "bg-black/[0.03] border-black/[0.06] text-[#8B93A7]"
+                        }`}
+                      >
+                        {f.status === "running" ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : f.status === "done" ? (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <Icon className="w-3.5 h-3.5" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[14px] text-[#0A0E1A] font-medium truncate">
+                          {f.title}
                         </div>
-                        <div className="min-w-0">
-                          <div className="text-[14px] text-[#0A0E1A] font-medium truncate">
-                            {f.title}
-                          </div>
-                          <div className="text-[12.5px] text-[#5A6478] truncate">
-                            {f.detail}
-                          </div>
+                        <div className="text-[12.5px] text-[#5A6478] truncate">
+                          {f.detail}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <Chip status={f.status} />
-                        <span className="font-mono text-[11px] text-[#8B93A7] w-10 text-right">
-                          {f.ago}
-                        </span>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <Chip status={f.status} />
+                      <span className="font-mono text-[11px] text-[#8B93A7] w-10 text-right">
+                        {f.ago}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Console strip */}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowRight, Play, CheckCircle2, Loader2 } from "lucide-react";
 
 const initialRows = [
@@ -10,28 +10,29 @@ const initialRows = [
 
 export default function Hero() {
   const [rows, setRows] = useState(initialRows);
-  const [tick, setTick] = useState(0);
 
-  // Cycle active row every 2.4s
+  // Cycle statuses without remounting rows
   useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 2400);
+    const interval = setInterval(() => {
+      setRows((prev) => {
+        const cycle = ["running", "done", "queued"];
+        return prev.map((r, i) => {
+          const nextStatus = cycle[(cycle.indexOf(r.status) + 1) % 3];
+          return {
+            ...r,
+            status: nextStatus,
+            time:
+              nextStatus === "running"
+                ? "just now"
+                : nextStatus === "done"
+                  ? `${(i + 1) * 2}s ago`
+                  : "—",
+          };
+        });
+      });
+    }, 2600);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    setRows((prev) => {
-      const next = [...prev];
-      // rotate statuses
-      const cycle = ["running", "done", "queued"];
-      next.forEach((r, i) => {
-        const idx = (cycle.indexOf(r.status) + 1) % 3;
-        r.status = cycle[idx];
-        r.time =
-          r.status === "running" ? "just now" : r.status === "done" ? `${(i + 1) * 2}s ago` : "queued";
-      });
-      return next;
-    });
-  }, [tick]);
 
   return (
     <section
@@ -169,38 +170,32 @@ export default function Hero() {
               </div>
 
               <div className="divide-y divide-white/5 border border-white/5 rounded-xl overflow-hidden">
-                <AnimatePresence initial={false}>
-                  {rows.map((r, idx) => (
-                    <motion.div
-                      key={r.id + r.status}
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.35 }}
-                      className={`flex items-center justify-between px-4 py-3.5 ${
-                        r.status === "running" ? "po-row-active" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <StatusIcon status={r.status} />
-                        <div className="min-w-0">
-                          <div className="text-[13.5px] text-white truncate">
-                            {r.agent}
-                          </div>
-                          <div className="text-[11.5px] text-white/40 font-mono truncate">
-                            {r.stage}
-                          </div>
+                {rows.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`flex items-center justify-between px-4 py-3.5 transition-colors duration-500 ${
+                      r.status === "running" ? "po-row-active" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <StatusIcon status={r.status} />
+                      <div className="min-w-0">
+                        <div className="text-[13.5px] text-white truncate">
+                          {r.agent}
+                        </div>
+                        <div className="text-[11.5px] text-white/40 font-mono truncate">
+                          {r.stage}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <StatusChip status={r.status} />
-                        <span className="text-[11px] font-mono text-white/35 w-14 text-right">
-                          {r.time}
-                        </span>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <StatusChip status={r.status} />
+                      <span className="text-[11px] font-mono text-white/35 w-14 text-right">
+                        {r.time}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Footer summary */}
