@@ -10,7 +10,7 @@ import Footer from "@/components/landing/Footer";
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-white text-[#0A0E1A]" data-testid="landing-page">
+    <div className="min-h-screen bg-white text-[#0A0E1A] overflow-x-hidden" data-testid="landing-page">
       <Navbar />
       <Hero />
       <WatchItWork />

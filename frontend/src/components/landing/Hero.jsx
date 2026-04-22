@@ -66,7 +66,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.05 }}
-            className="font-display tracking-tightest mt-6 text-[44px] leading-[1.02] sm:text-[56px] lg:text-[68px] font-semibold text-white"
+            className="font-display tracking-tightest mt-6 text-[36px] leading-[1.04] sm:text-[52px] lg:text-[68px] sm:leading-[1.02] font-semibold text-white"
             data-testid="hero-headline"
           >
             Run your product

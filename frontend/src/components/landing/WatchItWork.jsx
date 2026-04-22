@@ -179,13 +179,13 @@ export default function WatchItWork() {
             </div>
 
             {/* Console strip */}
-            <div className="bg-[#0A0E1A] px-5 py-3 font-mono text-[11.5px] text-white/60 flex items-center gap-3">
-              <span className="text-[#2DD4BF]">›</span>
-              <span className="text-white/40">14:32:07</span>
-              <span>agent.story_slicer emitted</span>
-              <span className="text-[#4F7FFF]">7 stories</span>
-              <span className="text-white/30">·</span>
-              <span>PROD-214</span>
+            <div className="bg-[#0A0E1A] px-5 py-3 font-mono text-[11.5px] text-white/60 flex items-center gap-3 overflow-hidden whitespace-nowrap">
+              <span className="text-[#2DD4BF] shrink-0">›</span>
+              <span className="text-white/40 shrink-0">14:32:07</span>
+              <span className="truncate">agent.story_slicer emitted</span>
+              <span className="text-[#4F7FFF] shrink-0">7 stories</span>
+              <span className="text-white/30 shrink-0">·</span>
+              <span className="shrink-0">PROD-214</span>
             </div>
           </div>
         </motion.div>
