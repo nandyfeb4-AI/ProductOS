@@ -11,6 +11,7 @@ from app.schemas.agents import (
     StoryGeneratorRequest,
     StoryRefinerRequest,
     StorySlicerRequest,
+    UserResearchRequest,
 )
 from app.schemas.artifacts import ArtifactGenerateRequest, StorySliceWorkflowRequest
 from app.schemas.backlog_refinement import BacklogRefinementAnalyzeRequest, BacklogRefinementExecuteRequest
@@ -60,6 +61,27 @@ async def start_competitor_analysis(
         running_stage="running",
         running_message="Analyzing named competitors against the provided product context.",
         runner=lambda: service.run_competitor_analysis(payload),
+    )
+    return GenerationJobAcceptedResponse(job=job)
+
+
+@router.post("/user-research", response_model=GenerationJobAcceptedResponse, status_code=202)
+async def start_user_research(
+    payload: UserResearchRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+    job_service: JobService = Depends(get_job_service),
+) -> GenerationJobAcceptedResponse:
+    job = job_service.enqueue(
+        job_type="user_research",
+        input_payload=payload.model_dump(mode="json"),
+        project_id=str(payload.project_id),
+        agent_key="user_research",
+        agent_label="User Research",
+        queued_stage="queued",
+        queued_message="Queued for AI user research synthesis.",
+        running_stage="running",
+        running_message="Synthesizing provided research inputs into product insights and recommendations.",
+        runner=lambda: service.run_user_research(payload),
     )
     return GenerationJobAcceptedResponse(job=job)
 

@@ -7,6 +7,11 @@ from app.db.postgres import get_db_connection
 
 
 class ProjectFeatureRepository:
+    def count_features(self) -> int:
+        query = "select count(*)::int as count from project_features"
+        row = self._fetch_one_required(query, {})
+        return int(row["count"])
+
     def create_feature(
         self,
         *,

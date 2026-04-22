@@ -12,67 +12,89 @@ If older chat history conflicts with this file, this file wins.
   - stop the flow
   - surface a clear error message
   - do not silently substitute placeholder scores, fake summaries, or synthetic content
-- do not imply live web research, citations, or monitored intelligence unless the backend truly does that
+- do not imply live web research, citations, monitored intelligence, or fresh user interviews unless the backend truly does that
 
 ## Active UI Task
 
-Build the first project-scoped UI for:
+Build the first UI for:
 
-- `Agent Run History`
+- `User Research`
 
 This is the only active UI handoff right now.
 
 ## Backend Already Available
 
-- all async agent jobs now persist project-scoped run metadata in `generation_jobs`
-- new route:
-  - `GET /api/projects/{project_id}/agent-runs`
-- optional query params:
-  - `agent_key`
-  - `status`
+- `POST /api/agents/user-research`
+- `POST /api/jobs/user-research`
+- existing job polling / websocket pattern already used elsewhere in the app
 
 Frontend helper already available at:
 
-- `apps/web/src/api/projects.js`
+- `apps/web/src/api/agents.js`
 
-Relevant function:
+Relevant functions:
 
-- `getProjectAgentRuns(projectId, { agentKey, status })`
+- `runUserResearch(...)`
+- `startUserResearchJob(...)`
+- `getGenerationJob(...)`
 
 ## Current MVP Model
 
-- this is a read-only project history view for agent runs
-- it is intentionally separate from workflow run history
-- it includes runs for standalone agents only:
-  - `Feature Generator`
-  - `Feature Refiner`
-  - `Feature Prioritizer`
-  - `Story Generator`
-  - `Story Refiner`
-  - `Story Slicer`
-  - `Competitor Analysis`
-- workflow jobs should not be shown in this first pass
+- this is a project-scoped, analysis-only agent
+- it does not persist research entities yet
+- it does not claim live research, browsing, or source-backed citations
+- it synthesizes only:
+  - provided research notes / snippets / summaries
+  - provided target user
+  - provided product context
+  - optional goal / constraints / supporting context
+- it automatically uses the active global `user_research` skill
+
+## Request Shape
+
+```json
+{
+  "project_id": "uuid",
+  "source_type": "prompt",
+  "product_name": "ProductOS",
+  "product_summary": "AI-native product management platform for discovery, planning, backlog refinement, and delivery execution.",
+  "target_user": "B2B SaaS product managers and product operations teams",
+  "research_inputs": [
+    "PMs spend too much time translating workshop notes into backlog-ready artifacts.",
+    "Teams want AI help, but they still need review checkpoints before Jira updates happen.",
+    "Current tools help with planning, but not with execution readiness."
+  ],
+  "research_goal": "Identify the strongest recurring pain points and opportunities in PM workflow operations.",
+  "constraints": ["Do not assume live research or fresh interviews"],
+  "supporting_context": ["Focus on discovery-to-delivery operations and execution readiness"]
+}
+```
+
+Important:
+
+- `research_inputs` is required
+- keep this as provided-context user research synthesis
+- do not invent external research inputs in UI
 
 ## Response Shape
 
 ```json
 {
-  "jobs": [
+  "research_summary": "string",
+  "user_segments": ["string"],
+  "key_pain_points": ["string"],
+  "unmet_needs": ["string"],
+  "jobs_to_be_done": ["string"],
+  "recommended_actions": ["string"],
+  "risks_and_unknowns": ["string"],
+  "results": [
     {
-      "id": "uuid",
-      "job_type": "feature_generation",
-      "project_id": "uuid",
-      "agent_key": "feature_generator",
-      "agent_label": "Feature Generator",
-      "status": "queued|running|completed|failed|cancelled",
-      "progress_stage": "queued|running|completed|failed",
-      "progress_message": "string|null",
-      "input_payload": {},
-      "result_payload": {},
-      "error_message": "string|null",
-      "created_at": "iso",
-      "updated_at": "iso",
-      "completed_at": "iso|null"
+      "insight_title": "string",
+      "insight_summary": "string",
+      "evidence": ["string"],
+      "implication": "string",
+      "recommended_action": "string",
+      "confidence_score": 4
     }
   ]
 }
@@ -80,78 +102,86 @@ Relevant function:
 
 ## What Claude Should Build
 
-### 1. Add a project-level agent runs surface
+### 1. Add the agent to the project `Agents` tab
 
-Preferred place:
+- add `User Research` as a selectable agent alongside the existing agents
 
-- inside the project experience, alongside the existing `Agents` area
+### 2. Build a dedicated User Research page
 
-Good options:
+Include a form for:
 
-- an `Agent Runs` section under the `Agents` tab
-- or a right-side / lower history panel inside the project `Agents` tab
-
-Keep it project-scoped.
-
-### 2. Show run history grouped by agent
+- product name
+- product summary
+- target user
+- research inputs
+- research goal
+- optional constraints
+- optional supporting context
 
 Recommended UX:
 
-- group by `agent_label`
-- newest runs first within each group
-- show a simple count per group when helpful
+- `research_inputs` can be a multiline list builder, chip input, or repeatable text blocks
+- optimize for copying in interviews, notes, support themes, or workshop-derived user signals
+- keep the form concise and synthesis-oriented
+- frame the source as provided research context, not live research
 
-### 3. Each run row/card should show
+### 3. Use the async job flow
 
-- agent label
-- status
-- created / updated time
-- progress message when running
-- failure message when failed
+- start with:
+  - `startUserResearchJob(...)`
+- use the existing websocket / polling pattern already used by other agents
+- show:
+  - queued
+  - running
+  - completed
+  - failed
 
-If completed:
+### 4. Result view
 
-- show a compact success state
-- allow expanding to inspect the stored result payload
+Show:
 
-### 4. Provide lightweight filters
+- research summary
+- user segments
+- key pain points
+- unmet needs
+- jobs to be done
+- recommended actions
+- risks and unknowns
 
-Helpful first-pass filters:
+Then show one card per insight with:
 
-- all agents
-- one selected agent
-- status filter
+- insight title
+- insight summary
+- evidence
+- implication
+- recommended action
+- confidence score
 
-Use the backend query params when filtering.
+### 5. Skills page
 
-### 5. Do not overbuild resume/replay yet
+Extend the `Skills` page to surface:
 
-For this first pass:
+- `user_research`
 
-- do not add rerun/resume execution from history
-- do not mutate runs
-- do not merge workflow history into this view
-
-This is a project-level observability/history surface only.
+Use the same pattern already used for the other global skills.
 
 ## Important UI Constraints
 
-- do not mix workflow runs into this history view
-- do not imply a run can be resumed unless that behavior truly exists
-- do not fabricate summaries from missing result payloads
-- if a run failed, show the real `error_message`
-- if a run is still running, prefer `progress_message`
+- do not present this as live user research or continuous user intelligence
+- do not mention browsing, citations, or external validation in the UI unless the backend actually supports it
+- do not create persistence flows, saved research records, or workflow orchestration in this first pass
+- keep this as a standalone reusable agent page
 
 ## Good Default Framing
 
 Use language like:
 
-- `Agent run history`
-- `Track AI agent activity for this project`
-- `View recent completed, running, and failed agent runs`
+- `Synthesize provided research inputs into product insights`
+- `Turn notes, interviews, and user signals into PM-ready findings`
+- `Built from the research context you provide`
 
 Avoid language like:
 
-- `workflow history` for this section
-- `resume any run`
-- `autonomous memory`
+- `live user monitoring`
+- `real-time research intelligence`
+- `source-backed interviews`

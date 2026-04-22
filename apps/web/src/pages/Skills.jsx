@@ -206,6 +206,36 @@ const DEFAULT_FEATURE_PRIORITIZATION_SKILL = {
   ],
 };
 
+const DEFAULT_USER_RESEARCH_SKILL = {
+  name: "Default User Research Skill",
+  slug: "default-user-research-skill",
+  skill_type: "user_research",
+  description: "Default ProductOS skill for synthesizing provided research inputs into structured PM-ready user research findings.",
+  is_active: true,
+  instructions:
+    "Synthesize the provided research inputs into structured findings. Use only the provided research context and product information. Do not claim live user interviews, real-time monitoring, or external citations unless explicitly supplied. Focus on practical PM outputs: user segments, pain points, unmet needs, jobs-to-be-done, recommended actions, and risks.",
+  required_sections: [
+    "insight_title",
+    "insight_summary",
+    "evidence",
+    "implication",
+    "recommended_action",
+    "confidence_score",
+  ],
+  quality_bar: [
+    "Ground every finding in the provided research inputs — do not invent evidence",
+    "Separate observed signals from inferred implications",
+    "Do not claim live research, browsing, or source-backed citations",
+    "Make recommendations actionable for product and roadmap decisions",
+    "Confidence score must reflect the strength of the provided evidence",
+  ],
+  integration_notes: [
+    "This first version is synthesis-only and does not persist research entities",
+    "Outputs should help PMs identify themes, validate directions, and prioritize discovery work",
+    "UI should present this as provided-context synthesis, not live user intelligence",
+  ],
+};
+
 const DEFAULT_COMPETITOR_ANALYSIS_SKILL = {
   name: "Default Competitor Analysis Skill",
   slug: "default-competitor-analysis-skill",
@@ -337,6 +367,20 @@ const SKILL_TYPE_CONFIG = {
     saveBtnCls: "from-teal-600 to-teal-700 hover:from-teal-500 hover:to-teal-600 shadow-teal-500/20",
     inputFocusCls: "focus:border-teal-500 focus:ring-teal-500/10",
   },
+  user_research: {
+    label: "User Research",
+    icon: "person_search",
+    defaultSkill: DEFAULT_USER_RESEARCH_SKILL,
+    badgeCls: "bg-purple-50 text-purple-600 border-purple-100",
+    ringCls: "ring-purple-500/40",
+    stripeCls: "bg-purple-500",
+    iconBgActiveCls: "bg-purple-500",
+    formBgCls: "from-purple-50/60",
+    cardActiveCls: "border-purple-200 bg-purple-50/60",
+    sectionIconCls: "text-purple-500",
+    saveBtnCls: "from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 shadow-purple-500/20",
+    inputFocusCls: "focus:border-purple-500 focus:ring-purple-500/10",
+  },
 };
 
 function TagEditor({ label, hint, icon, values, onChange }) {
@@ -459,7 +503,7 @@ export default function Skills() {
     setLoading(true);
     setError(null);
     try {
-      const [featureRes, storyRes, storyRefinementRes, storySlicingRes, featureRefinementRes, featurePrioritizationRes, competitorAnalysisRes] = await Promise.allSettled([
+      const [featureRes, storyRes, storyRefinementRes, storySlicingRes, featureRefinementRes, featurePrioritizationRes, competitorAnalysisRes, userResearchRes] = await Promise.allSettled([
         getSkills("feature_spec", null),
         getSkills("story_spec", null),
         getSkills("story_refinement", null),
@@ -467,6 +511,7 @@ export default function Skills() {
         getSkills("feature_refinement", null),
         getSkills("feature_prioritization", null),
         getSkills("competitor_analysis", null),
+        getSkills("user_research", null),
       ]);
       const featureRows = featureRes.status === "fulfilled"
         ? (Array.isArray(featureRes.value) ? featureRes.value : (featureRes.value?.skills ?? []))
@@ -489,7 +534,10 @@ export default function Skills() {
       const competitorAnalysisRows = competitorAnalysisRes.status === "fulfilled"
         ? (Array.isArray(competitorAnalysisRes.value) ? competitorAnalysisRes.value : (competitorAnalysisRes.value?.skills ?? []))
         : [];
-      const all = [...featureRows, ...storyRows, ...storyRefinementRows, ...storySlicingRows, ...featureRefinementRows, ...featurePrioritizationRows, ...competitorAnalysisRows];
+      const userResearchRows = userResearchRes.status === "fulfilled"
+        ? (Array.isArray(userResearchRes.value) ? userResearchRes.value : (userResearchRes.value?.skills ?? []))
+        : [];
+      const all = [...featureRows, ...storyRows, ...storyRefinementRows, ...storySlicingRows, ...featureRefinementRows, ...featurePrioritizationRows, ...competitorAnalysisRows, ...userResearchRows];
       setSkills(all);
       const preferred = all.find((s) => s.is_active) ?? all[0] ?? null;
       setSelectedId(preferred?.id ?? null);
@@ -580,7 +628,7 @@ export default function Skills() {
             </div>
 
             <div className="py-2">
-              {(["feature_spec", "story_spec", "story_refinement", "story_slicing", "feature_refinement", "feature_prioritization", "competitor_analysis"]).map((type) => {
+              {(["feature_spec", "story_spec", "story_refinement", "story_slicing", "feature_refinement", "feature_prioritization", "competitor_analysis", "user_research"]).map((type) => {
                 const typeCfg = SKILL_TYPE_CONFIG[type];
                 const typeSkills = skills.filter((s) => s.skill_type === type);
                 const itemsToShow = typeSkills.length > 0
@@ -704,7 +752,9 @@ export default function Skills() {
                             ? "Changes here affect the Feature Prioritizer agent."
                             : draft.skill_type === "competitor_analysis"
                               ? "Changes here affect the Competitor Analysis agent."
-                              : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
+                              : draft.skill_type === "user_research"
+                                ? "Changes here affect the User Research agent."
+                                : "Changes here affect the Feature Generator agent and workflow feature artifact generation."}
                 </p>
               </div>
               <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border shrink-0 ${cfg.badgeCls}`}>

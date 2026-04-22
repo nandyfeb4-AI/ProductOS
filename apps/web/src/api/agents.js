@@ -6,6 +6,12 @@ export const runCompetitorAnalysis = (body) =>
 export const startCompetitorAnalysisJob = (body) =>
   postJson("/api/jobs/competitor-analysis", body);
 
+export const runUserResearch = (body) =>
+  postJson("/api/agents/user-research", body);
+
+export const startUserResearchJob = (body) =>
+  postJson("/api/jobs/user-research", body);
+
 export const runFeatureGenerator = (body) =>
   postJson("/api/agents/feature-generator", body);
 

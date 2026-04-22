@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Architect Pro | Project Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed": "#dae2fd",
+                        "on-primary-fixed-variant": "#004395",
+                        "on-secondary-container": "#57657a",
+                        "primary": "#0058be",
+                        "on-secondary-fixed-variant": "#3a485b",
+                        "on-primary": "#ffffff",
+                        "surface-tint": "#005ac2",
+                        "secondary-fixed-dim": "#b9c7df",
+                        "on-secondary": "#ffffff",
+                        "secondary": "#515f74",
+                        "on-tertiary-fixed-variant": "#3f465c",
+                        "on-error-container": "#93000a",
+                        "surface-container-low": "#f2f3ff",
+                        "inverse-surface": "#283044",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#dae2fd",
+                        "secondary-fixed": "#d5e3fc",
+                        "primary-fixed-dim": "#adc6ff",
+                        "surface-bright": "#faf8ff",
+                        "primary-fixed": "#d8e2ff",
+                        "on-tertiary-fixed": "#131b2e",
+                        "inverse-on-surface": "#eef0ff",
+                        "tertiary-container": "#6c748b",
+                        "on-background": "#131b2e",
+                        "surface-dim": "#d2d9f4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "surface-container": "#eaedff",
+                        "primary-container": "#2170e4",
+                        "surface": "#faf8ff",
+                        "on-secondary-fixed": "#0d1c2e",
+                        "tertiary-fixed-dim": "#bec6e0",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#d5e3fc",
+                        "on-surface": "#131b2e",
+                        "tertiary": "#545c72",
+                        "background": "#faf8ff",
+                        "on-primary-container": "#fefcff",
+                        "on-tertiary": "#ffffff",
+                        "outline-variant": "#c2c6d6",
+                        "inverse-primary": "#adc6ff",
+                        "on-tertiary-container": "#fefcff",
+                        "outline": "#727785",
+                        "on-primary-fixed": "#001a42",
+                        "surface-container-highest": "#dae2fd",
+                        "surface-container-high": "#e2e7ff",
+                        "on-surface-variant": "#424754"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .font-headline { font-family: 'Manrope', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- SideNavBar Component -->
+<aside class="bg-slate-900 dark:bg-slate-950 h-screen w-64 fixed left-0 top-0 border-r-0 shadow-xl shadow-slate-950/20 flex flex-col py-6 px-4 z-50">
+<div class="mb-10 px-2">
+<h1 class="text-xl font-bold tracking-tight text-white mb-1">Architect Pro</h1>
+<p class="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Enterprise Intelligence</p>
+</div>
+<nav class="flex-1 space-y-1">
+<!-- Active: Projects (Current Context) -->
+<a class="group flex items-center px-3 py-2.5 text-slate-400 font-medium hover:bg-slate-800/80 hover:text-white transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined mr-3 text-lg" data-icon="dashboard">dashboard</span>
+<span class="font-manrope text-sm font-medium tracking-wide">Dashboard</span>
+</a>
+<a class="group flex items-center px-3 py-2.5 text-slate-400 font-medium hover:bg-slate-800/80 hover:text-white transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined mr-3 text-lg" data-icon="psychology">psychology</span>
+<span class="font-manrope text-sm font-medium tracking-wide">Intelligence</span>
+</a>
+<a class="group flex items-center px-3 py-2.5 text-white font-bold border-r-2 border-blue-500 bg-slate-800/50 rounded-lg" href="#">
+<span class="material-symbols-outlined mr-3 text-lg" data-icon="account_tree">account_tree</span>
+<span class="font-manrope text-sm font-medium tracking-wide">Projects</span>
+</a>
+<a class="group flex items-center px-3 py-2.5 text-slate-400 font-medium hover:bg-slate-800/80 hover:text-white transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined mr-3 text-lg" data-icon="account_tree">account_tree</span>
+<span class="font-manrope text-sm font-medium tracking-wide">Workflows</span>
+</a>
+<a class="group flex items-center px-3 py-2.5 text-slate-400 font-medium hover:bg-slate-800/80 hover:text-white transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined mr-3 text-lg" data-icon="settings">settings</span>
+<span class="font-manrope text-sm font-medium tracking-wide">Settings</span>
+</a>
+</nav>
+<div class="mt-auto px-2">
+<button class="w-full py-3 bg-gradient-to-br from-primary to-primary-container text-white text-sm font-bold rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 group hover:scale-[1.02] transition-transform">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Analysis
+            </button>
+<div class="mt-6 flex items-center gap-3 pt-6 border-t border-slate-800">
+<div class="w-8 h-8 rounded-full bg-slate-700 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Professional avatar of a senior architect with a clean background and neutral lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2yCoYUIj3peJ3JRjdCE8qLiS4VIIvVDuwQca7_IijaQKzs3bIdf-hFScG3Jb0VbcTrEzUGr16cVQoeXUZwwjOkfiSmDG0aN0EQYNunSY6nRGfJc7KfE5AvYf4dKwTAqWF5O3DtNNntXEGxGDLBh-PH99Nrd7YDIOhOsOH-EiVXRpTFbw7_dE8r23u0ACK69v0O9ImllPTgAHi7iRyAfsTCKuGwDNWfEIguG9rDz-FNsWUpoXNogG1pn9ROF6ENQpqyq_AhdTf-Fw"/>
+</div>
+<div class="flex flex-col">
+<span class="text-xs font-bold text-white">Alex Rivera</span>
+<span class="text-[10px] text-slate-500">Lead Architect</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- TopNavBar Component -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] z-40 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/20 dark:border-slate-800/20 flex items-center justify-between px-8 h-16">
+<div class="flex items-center flex-1 max-w-xl">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-dim rounded-lg border-none text-sm focus:ring-1 focus:ring-primary placeholder-slate-500" placeholder="Search architecture, workflows, or data..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-500 hover:text-blue-600 transition-all">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:text-blue-600 transition-all">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+<div class="h-6 w-[1px] bg-slate-200 mx-2"></div>
+<div class="text-right">
+<p class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Current Project</p>
+<p class="text-xs font-semibold text-primary">Uber Issues</p>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<div class="pt-24 px-8 pb-12">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="bg-secondary-container text-on-secondary-container text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-widest">Architectural Project</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-base">folder</span>
+<span>Projects</span>
+<span class="material-symbols-outlined text-base">chevron_right</span>
+<span class="font-semibold text-on-surface">Uber Issues</span>
+</div>
+</div>
+<h2 class="text-4xl font-extrabold tracking-tight text-on-surface font-headline">Uber Issues</h2>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-5 py-2.5 bg-surface-container-highest text-on-surface font-semibold text-sm rounded-lg flex items-center gap-2 hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="play_arrow">play_arrow</span>
+                        Start a Workshop
+                    </button>
+<button class="px-5 py-2.5 bg-gradient-to-r from-primary to-primary-container text-white font-bold text-sm rounded-lg shadow-lg shadow-primary/10 flex items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-lg" data-icon="auto_awesome">auto_awesome</span>
+                        Generate a Feature
+                    </button>
+</div>
+</div>
+<!-- Tab Navigation -->
+<div class="flex items-center gap-8 mb-8 border-b border-outline-variant/20">
+<a class="pb-4 text-sm font-bold text-primary border-b-2 border-primary" href="#">Overview</a>
+<a class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Workshops</a>
+<a class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Workflows</a>
+<a class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Agents</a>
+<a class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Features</a>
+<a class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Stories</a>
+<a class="pb-4 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Roadmap</a>
+</div>
+<div class="grid grid-cols-12 gap-8">
+<!-- Main Content (Left) -->
+<div class="col-span-12 lg:col-span-8 space-y-8">
+<!-- Statistics Bento Grid -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-4">Workshops</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-extrabold text-on-surface">1</h3>
+<span class="material-symbols-outlined text-primary/30 text-3xl">groups</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-4">Active Workflows</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-extrabold text-on-surface">0</h3>
+<span class="material-symbols-outlined text-primary/30 text-3xl">schema</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-4">Features</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-extrabold text-on-surface">1</h3>
+<span class="material-symbols-outlined text-primary/30 text-3xl">category</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-4">Stories</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-extrabold text-on-surface">2</h3>
+<span class="material-symbols-outlined text-primary/30 text-3xl">auto_stories</span>
+</div>
+</div>
+</div>
+<!-- Visual Insight / Banner -->
+<div class="relative overflow-hidden rounded-2xl aspect-[21/9] flex items-center bg-slate-900 group">
+<img class="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:scale-105 transition-transform duration-700" data-alt="Modern minimalist office space with floor-to-ceiling windows and dramatic lighting, representing enterprise scale and professional intelligence" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCpJ4kb2oWMHXdijvsZzQ3kapHdRwJ-yPkOVYt28ZbH4_fIAjjwvcb2xabB9Vy9XVUSwNVVrhgVmK0P9PBOy3c76V5wOxEwoLmasOqliazIcEO_L2cXdH6AdZxBEvmWPsuElhKet2PiI-vwCpRmTcIJu05DFHzb0E3o3tGmCwGP6HBY_zK1qpRf5mG2h8QfhbeQ6KjuTMJ5lQkehUSIEtXmZfZNRqieT9TefG6q_7tqySl_L5IB1ZCoJNOFDfCas7sNQPCOgH0Ztb8"/>
+<div class="relative z-10 p-10 max-w-lg">
+<h3 class="text-2xl font-extrabold text-white mb-3">Enterprise Architectural Analysis</h3>
+<p class="text-slate-300 text-sm leading-relaxed">System complexity is currently within stable parameters. We recommend initiating a Storyboard Workshop to refine user-end issues discovered in the last sprint.</p>
+<button class="mt-6 text-primary-fixed font-bold text-sm flex items-center gap-2 hover:gap-3 transition-all">
+                                Review Insights
+                                <span class="material-symbols-outlined text-base">arrow_forward</span>
+</button>
+</div>
+<div class="absolute inset-0 bg-gradient-to-r from-slate-950 to-transparent"></div>
+</div>
+<!-- Recent Activity Section -->
+<section>
+<div class="flex items-center justify-between mb-6">
+<h4 class="text-lg font-bold text-on-surface font-headline">Recent Intelligence</h4>
+<button class="text-xs font-bold text-primary uppercase tracking-widest">View Report</button>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-container-low p-4 rounded-xl flex items-center justify-between hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-white flex items-center justify-center text-primary shadow-sm">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div>
+<p class="text-sm font-semibold text-on-surface">Updated Story: Login Redesign</p>
+<p class="text-[10px] text-on-surface-variant">Modified by Alex Rivera • 2 hours ago</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline">more_vert</span>
+</div>
+<div class="bg-surface-container-low p-4 rounded-xl flex items-center justify-between hover:bg-surface-container transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-lg bg-white flex items-center justify-center text-primary shadow-sm">
+<span class="material-symbols-outlined">rocket_launch</span>
+</div>
+<div>
+<p class="text-sm font-semibold text-on-surface">New Feature: Real-time Tracking</p>
+<p class="text-[10px] text-on-surface-variant">Auto-generated by Intelligence Engine • 5 hours ago</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline">more_vert</span>
+</div>
+</div>
+</section>
+</div>
+<!-- Info Panel (Right) -->
+<aside class="col-span-12 lg:col-span-4 space-y-6">
+<div class="bg-surface-container-low rounded-2xl p-8 border border-outline-variant/10">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-6">Project Metadata</h4>
+<div class="space-y-6">
+<div class="flex flex-col gap-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase">Status</span>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span class="text-sm font-extrabold text-on-surface">ACTIVE</span>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase">Project Slug</span>
+<div class="flex items-center gap-2 px-3 py-2 bg-surface-dim rounded-lg group">
+<span class="text-sm font-mono text-primary flex-1">uber-issues</span>
+<button class="material-symbols-outlined text-base text-slate-400 hover:text-primary transition-colors">content_copy</button>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase">Intelligence Node</span>
+<span class="text-sm font-semibold text-on-surface">Architect-Core-04</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase">Date Created</span>
+<span class="text-sm font-semibold text-on-surface">15 Apr 2026</span>
+</div>
+</div>
+<div class="mt-10 pt-8 border-t border-outline-variant/20">
+<h5 class="text-[10px] font-bold text-on-surface-variant uppercase mb-4">Team Access</h5>
+<div class="flex -space-x-2">
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-low bg-slate-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Portrait of a developer with glasses in a studio setting with soft blue lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfB4wEpU3BBnKHq4Y6JsTDmY9T-AeGSWI3y-UcEfa5BI34k712MaL1ND72H9XKGhKTpLyaiWK0ilTziVWwvmIwd85goZw9XZ1eXb2sBihsAyhYXGKFQxdld1T_a5MBmFF5H0bnkp1kSr5JT546JEUjD4W6XFg4BfBdTl2gsmaCI-Eg_ev4FDRQXwGMh_DsN7eFBg6iLf1qB0SX2SFKzxyXCJjS1__J0G8GMvZxQrAOElnROt-N4vz5kMieCyzcqtc1p7JUoTCVnwo"/>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-low bg-slate-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Portrait of a female product manager with a bright, professional smile and soft warm lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuABSYR92e6PoPRaBD_Jg-HA81Cg1IkS-pG20RCgb02nYECV2TRngqfmZ0exykO8-uGCRpUP8f8Ytn50GoH05ktTP5tiD_1SDAkHJWG7MJ5hGzkC0Hp6IRODaLM-qRqLQqi5PMQMEHRTfM034jz0IrnZuvQPhueAtf_YOGzmPLQz4OsolPYw7d5j519CBwc0rdFz_QvLzvf-WLIiPdUQgEe-JSBXv_kIILRyc3DkuS-9a_ec84YzrZs2LNPcqGnWhGMhIR9ziSY9FAE"/>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-low bg-slate-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Professional headshot of a business analyst with modern lighting and a neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD1SBQusNt-gBBb0RyEy_AntSCXZpum-vtANuEph2sOgGUqAxpzaUjmqhUBU-eHWTpioB6Ok6zpn0-yRFEWrghajyeoD4hmD039X0oiXfTk8jg3hfgZzic83Dr6z9lbKwDi9AiRWvOBledT_31QzRGvQko_AFnw2MSRF1pNJrVGIVGT566Ga6Y89p3XqwUmUznB11OYNwkKbCoMoEJmSfc1GFcAhJtwc41Svj5tRPKU8fvGqINdiQj0KzqmffxkVZ-ZwU0RGf0kmVU"/>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-low bg-primary text-white flex items-center justify-center text-[10px] font-bold">
+                                    +5
+                                </div>
+</div>
+</div>
+</div>
+<!-- Quick Tools Card -->
+<div class="bg-gradient-to-br from-primary to-primary-container rounded-2xl p-8 text-white">
+<span class="material-symbols-outlined text-4xl mb-4 opacity-50">auto_awesome_motion</span>
+<h4 class="text-xl font-extrabold mb-2">Architectural Blueprint</h4>
+<p class="text-xs text-blue-100 leading-relaxed mb-6 opacity-80">Export your entire project structure as a technical specification or documentation package.</p>
+<button class="w-full py-3 bg-white text-primary text-sm font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors">
+<span class="material-symbols-outlined text-base">download</span>
+                            Export Blueprint
+                        </button>
+</div>
+</aside>
+</div>
+</div>
+</main>
+</body></html>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getDashboardSummary,
   readDashboardSummaryCache,
+  readProjectsListCache,
   writeDashboardSummaryCache,
 } from "../api/dashboard";
 import { getProjects } from "../api/projects";
@@ -129,8 +130,8 @@ export default function Dashboard({ onNavigate }) {
   const [summaryLoading, setSummaryLoading] = useState(() => !readDashboardSummaryCache());
   const [summaryError, setSummaryError]     = useState(null);
 
-  const [projects, setProjects]             = useState([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projects, setProjects]             = useState(() => readProjectsListCache() ?? []);
+  const [projectsLoading, setProjectsLoading] = useState(() => !(readProjectsListCache()?.length > 0));
 
   const [skills, setSkills]                 = useState([]);
   const [skillsLoading, setSkillsLoading]   = useState(true);

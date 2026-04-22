@@ -9,6 +9,18 @@ from app.db.postgres import get_db_connection
 
 
 class WorkflowRepository:
+    def count_workflows(self, status_filter: list[str] | None = None) -> int:
+        query = """
+            select count(*)::int as count
+            from workflow_runs
+            where (
+                %(status_filter)s::text[] is null
+                or status = any(%(status_filter)s::text[])
+            )
+        """
+        row = self._fetch_one_required(query, {"status_filter": status_filter})
+        return int(row["count"])
+
     def create_workflow(
         self,
         *,

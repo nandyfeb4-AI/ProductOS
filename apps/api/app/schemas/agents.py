@@ -138,6 +138,38 @@ class CompetitorAnalysisResponse(BaseModel):
     results: list[CompetitorAnalysisResult] = Field(default_factory=list)
 
 
+class UserResearchInsight(BaseModel):
+    insight_title: str
+    insight_summary: str = ""
+    evidence: list[str] = Field(default_factory=list)
+    implication: str = ""
+    recommended_action: str = ""
+    confidence_score: int
+
+
+class UserResearchRequest(BaseModel):
+    project_id: UUID
+    source_type: Literal["prompt"] = "prompt"
+    product_name: str
+    product_summary: str = ""
+    target_user: str = ""
+    research_inputs: list[str] = Field(default_factory=list, min_length=1, max_length=12)
+    research_goal: str = ""
+    constraints: list[str] = Field(default_factory=list)
+    supporting_context: list[str] = Field(default_factory=list)
+
+
+class UserResearchResponse(BaseModel):
+    research_summary: str = ""
+    user_segments: list[str] = Field(default_factory=list)
+    key_pain_points: list[str] = Field(default_factory=list)
+    unmet_needs: list[str] = Field(default_factory=list)
+    jobs_to_be_done: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    risks_and_unknowns: list[str] = Field(default_factory=list)
+    results: list[UserResearchInsight] = Field(default_factory=list)
+
+
 class StoryGeneratorRequest(BaseModel):
     project_id: UUID
     source_type: Literal["feature"] = "feature"

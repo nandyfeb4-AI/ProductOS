@@ -7,6 +7,11 @@ from app.db.postgres import get_db_connection
 
 
 class ProjectStoryRepository:
+    def count_stories(self) -> int:
+        query = "select count(*)::int as count from project_stories"
+        row = self._fetch_one_required(query, {})
+        return int(row["count"])
+
     def create_story(
         self,
         *,

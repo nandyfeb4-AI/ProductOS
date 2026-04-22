@@ -1338,6 +1338,18 @@ const AGENT_CATALOG = [
     skillType:   "competitor_analysis",
     btnCls:      "bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-500 hover:to-teal-600 shadow-teal-500/20",
   },
+  {
+    id:          "user-research",
+    agentKey:    "user_research",
+    icon:        "person_search",
+    name:        "User Research",
+    description: "Synthesize provided research inputs — interviews, notes, and user signals — into PM-ready insights, pain points, jobs-to-be-done, and recommended actions.",
+    color:       "text-purple-600",
+    bg:          "bg-purple-50 border-purple-100",
+    stripe:      "from-purple-400 via-purple-300 to-violet-300",
+    skillType:   "user_research",
+    btnCls:      "bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 shadow-purple-500/20",
+  },
 ];
 
 function AgentsTab({ project, onNavigate }) {

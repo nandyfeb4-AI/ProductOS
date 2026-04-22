@@ -22,6 +22,7 @@ import FeaturePrioritizerAgent    from "./pages/FeaturePrioritizerAgent";
 import FeatureHardeningWorkflow    from "./pages/FeatureHardeningWorkflow";
 import BacklogRefinementWorkflow  from "./pages/BacklogRefinementWorkflow";
 import CompetitorAnalysisAgent    from "./pages/CompetitorAnalysisAgent";
+import UserResearchAgent          from "./pages/UserResearchAgent";
 import TeamCapacity               from "./pages/TeamCapacity";
 import Skills                    from "./pages/Skills";
 import Placeholder             from "./pages/Placeholder";
@@ -53,6 +54,7 @@ const VIEWS = {
   "feature-hardening":       FeatureHardeningWorkflow,
   "backlog-refinement":     BacklogRefinementWorkflow,
   "competitor-analysis":    CompetitorAnalysisAgent,
+  "user-research":          UserResearchAgent,
   team:              TeamCapacity,
   backlog:           PlaceholderBacklog,
   reports:           PlaceholderReports,
@@ -119,7 +121,7 @@ export default function App() {
   }
 
   // Guard: project-scoped views require an active project — redirect to projects if none
-  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement", "competitor-analysis", "team"]);
+  const PROJECT_SCOPED_VIEWS = new Set(["workshop", "feature-generator", "story-generator", "story-refiner", "story-slicer", "feature-refiner", "feature-prioritizer", "feature-hardening", "backlog-refinement", "competitor-analysis", "user-research", "team"]);
   const resolvedView = (PROJECT_SCOPED_VIEWS.has(activeView) && !activeProject) ? "projects" : activeView;
   const ViewComponent = VIEWS[resolvedView] ?? VIEWS.dashboard;
 

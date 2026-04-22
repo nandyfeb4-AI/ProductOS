@@ -16,6 +16,8 @@ from app.schemas.agents import (
     StoryRefinerResponse,
     StorySlicerRequest,
     StorySlicerResponse,
+    UserResearchRequest,
+    UserResearchResponse,
 )
 from app.services.pipeline_service import PipelineService
 
@@ -29,6 +31,17 @@ async def run_competitor_analysis(
 ) -> CompetitorAnalysisResponse:
     try:
         return service.run_competitor_analysis(payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
+@router.post("/user-research", response_model=UserResearchResponse)
+async def run_user_research(
+    payload: UserResearchRequest,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> UserResearchResponse:
+    try:
+        return service.run_user_research(payload)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 

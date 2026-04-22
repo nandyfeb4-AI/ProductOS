@@ -60,6 +60,8 @@ from app.schemas.agents import (
     StoryRefinerResponse,
     StorySlicerRequest,
     StorySlicerResponse,
+    UserResearchRequest,
+    UserResearchResponse,
 )
 from app.schemas.common import InsightBundle, StoryArtifact
 from app.schemas.feature import Feature, FeatureGenerateRequest, FeatureGenerateResponse
@@ -160,6 +162,8 @@ from app.services.story_refinement_llm_service import StoryRefinementLLMService
 from app.services.story_refinement_skill import default_story_refinement_skill
 from app.services.story_slicing_skill import default_story_slicing_skill
 from app.services.story_spec_skill import default_story_spec_skill
+from app.services.user_research_llm_service import UserResearchLLMService
+from app.services.user_research_skill import default_user_research_skill
 from app.schemas.solution_shaping import (
     ShapedSolution,
     SolutionShapingConfirmRequest,
@@ -208,6 +212,7 @@ class PipelineService:
         self.story_refinement_llm_service = StoryRefinementLLMService()
         self.story_slicer_llm_service = StorySlicerLLMService()
         self.story_slicing_llm_service = StorySlicingLLMService()
+        self.user_research_llm_service = UserResearchLLMService()
         self.jira_service = JiraService()
         self.connector_repository = ConnectorRepository()
         self.job_repository = JobRepository()
@@ -1468,30 +1473,11 @@ class PipelineService:
         return SkillResponse(**row)
 
     def get_dashboard_summary(self) -> DashboardSummaryResponse:
-        workshop_rows = self.workshop_repository.list_workshops()
-        rows = self.workflow_repository.list_workflows("workshop")
-        feature_rows = self.project_feature_repository.list_features()
-        story_rows = self.project_story_repository.list_stories()
-
-        workshops = len(workshop_rows)
-        active_flows = sum(1 for row in rows if row.get("status") in {"active", "draft"})
+        workshops = self.workshop_repository.count_workshops()
+        active_flows = self.workflow_repository.count_workflows(["active", "draft"])
+        features = self.project_feature_repository.count_features()
+        ready_stories = self.project_story_repository.count_stories()
         initiatives = 0
-        features = len(feature_rows)
-        ready_stories = len(story_rows)
-
-        for row in rows:
-            state_payload = row.get("state_payload") or {}
-            artifacts = ((state_payload.get("artifact_pipeline_data") or {}).get("artifacts") or [])
-            stories = ((state_payload.get("stories_pipeline_data") or {}).get("stories") or [])
-
-            for artifact in artifacts:
-                artifact_type = str(artifact.get("artifact_type", "")).lower()
-                if artifact_type == "initiative":
-                    initiatives += 1
-                elif artifact_type == "feature":
-                    features += 1
-
-            ready_stories += len(stories)
 
         return DashboardSummaryResponse(
             workshops=workshops,
@@ -1684,6 +1670,9 @@ class PipelineService:
     def _get_active_competitor_analysis_skill(self) -> dict:
         return self.skill_repository.get_active_skill("competitor_analysis") or default_competitor_analysis_skill()
 
+    def _get_active_user_research_skill(self) -> dict:
+        return self.skill_repository.get_active_skill("user_research") or default_user_research_skill()
+
     def _get_active_feature_refinement_skill(self) -> dict:
         return self.skill_repository.get_active_skill("feature_refinement") or default_feature_refinement_skill()
 
@@ -1768,6 +1757,22 @@ class PipelineService:
         except Exception as exc:
             self.logger.exception("AI competitor analysis failed")
             raise RuntimeError("AI competitor analysis failed. Please retry.") from exc
+
+    def run_user_research(self, payload: UserResearchRequest) -> UserResearchResponse:
+        self._ensure_project_exists(str(payload.project_id))
+        if not self.user_research_llm_service.enabled:
+            raise RuntimeError("AI user research synthesis is unavailable. Configure the OpenAI API key and retry.")
+        active_skill = self._get_active_user_research_skill()
+        try:
+            return self.user_research_llm_service.analyze(
+                payload,
+                skill=active_skill,
+            )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            self.logger.exception("AI user research synthesis failed")
+            raise RuntimeError("AI user research synthesis failed. Please retry.") from exc
 
     def run_feature_refiner(self, payload: FeatureRefinerRequest) -> FeatureRefinerResponse:
         self._ensure_project_exists(str(payload.project_id))

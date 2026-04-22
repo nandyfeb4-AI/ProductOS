@@ -15,6 +15,7 @@ JobType = Literal[
     "feature_hardening",
     "feature_prioritization",
     "feature_refinement",
+    "user_research",
     "story_generation",
     "story_refinement",
     "story_slicer",

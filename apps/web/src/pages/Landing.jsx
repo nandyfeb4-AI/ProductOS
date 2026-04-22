@@ -443,7 +443,11 @@ function HeroSection({ onEnter }) {
               workflow.<br />
               <span style={{
                 background: "linear-gradient(90deg,#a78bfa,#60a5fa,#34d399)",
-                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                color: "transparent",
+                display: "inline",
               }}>End-to-end.</span>
             </motion.h1>
 

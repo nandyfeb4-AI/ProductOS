@@ -7,6 +7,11 @@ from app.db.postgres import get_db_connection
 
 
 class WorkshopRepository:
+    def count_workshops(self) -> int:
+        query = "select count(*)::int as count from workshops"
+        row = self._fetch_one_required(query, {})
+        return int(row["count"])
+
     def create_workshop(
         self,
         *,

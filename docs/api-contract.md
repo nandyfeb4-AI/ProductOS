@@ -239,6 +239,66 @@ Skills are reusable cross-project behavior definitions that shape how agents and
 ```
 - Behavior: uses the OpenAI Responses API, automatically applies the active `competitor_analysis` skill, analyzes only the provided product context plus named competitors, and fails explicitly when AI output is incomplete or unavailable
 
+### `POST /api/agents/user-research`
+- Purpose: reusable agent that synthesizes provided user research inputs into actionable PM insights
+- Request:
+```json
+{
+  "project_id": "uuid",
+  "source_type": "prompt",
+  "product_name": "ProductOS",
+  "product_summary": "AI-native product management platform for discovery, planning, backlog refinement, and delivery execution.",
+  "target_user": "B2B SaaS product managers and product operations teams",
+  "research_inputs": [
+    "PMs spend too much time translating workshop notes into backlog-ready artifacts.",
+    "Teams want AI help, but they still need review checkpoints before Jira updates happen.",
+    "Current tools help with planning, but not with execution readiness."
+  ],
+  "research_goal": "Identify the strongest recurring pain points and opportunities in PM workflow operations.",
+  "constraints": ["Do not assume live research or fresh interviews"],
+  "supporting_context": ["Focus on discovery-to-delivery operations and execution readiness"]
+}
+```
+- Response:
+```json
+{
+  "research_summary": "User research points to strong demand for help converting planning inputs into execution-ready backlog work without giving up human review.",
+  "user_segments": ["Product managers at B2B SaaS companies", "Product operations leads"],
+  "key_pain_points": [
+    "Manual translation from discovery into stories takes too long",
+    "Planning tools do not help enough with execution readiness"
+  ],
+  "unmet_needs": [
+    "Structured human-in-the-loop workflow automation",
+    "Stronger backlog quality and readiness support"
+  ],
+  "jobs_to_be_done": [
+    "Turn raw PM inputs into delivery-ready backlog work",
+    "Preserve control while still accelerating PM operations"
+  ],
+  "recommended_actions": [
+    "Lean into discovery-to-delivery workflow messaging",
+    "Emphasize execution readiness and review checkpoints"
+  ],
+  "risks_and_unknowns": [
+    "Need stronger evidence on collaboration/governance expectations"
+  ],
+  "results": [
+    {
+      "insight_title": "PMs want speed without giving up control",
+      "insight_summary": "Users respond well to AI support when outputs remain reviewable before delivery systems are updated.",
+      "evidence": [
+        "Teams still want review checkpoints before Jira updates happen"
+      ],
+      "implication": "Position ProductOS as human-supervised workflow automation, not autonomous execution.",
+      "recommended_action": "Make approval points and inspectable outputs more visible in product messaging.",
+      "confidence_score": 4
+    }
+  ]
+}
+```
+- Behavior: uses the OpenAI Responses API, automatically applies the active `user_research` skill, synthesizes only the provided research inputs, and fails explicitly when AI output is incomplete or unavailable
+
 ### `POST /api/agents/feature-prioritizer`
 - Purpose: reusable agent that evaluates and ranks one or more persisted project features
 - Request:
